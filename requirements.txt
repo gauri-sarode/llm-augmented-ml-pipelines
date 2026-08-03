@@ -1,0 +1,11 @@
+pandas
+numpy
+scikit-learn
+lightgbm
+sentence-transformers
+torch
+requests
+ollama
+pytest
+scipy
+matplotlib
