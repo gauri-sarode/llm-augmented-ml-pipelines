@@ -44,9 +44,15 @@ def build_tfidf_features(movies: pd.DataFrame, max_features: int = 2000):
     return {mid: matrix[i] for i, mid in enumerate(movies["movieId"])}, 0.0
 
 
-def build_sbert_features(movies: pd.DataFrame, model_name="all-MiniLM-L6-v2", use_cache=True):
-    """Sentence-transformer embeddings, cached per movieId. Returns (dict, avg_latency_sec)."""
-    cache_name = f"sbert_{model_name}"
+def build_sbert_features(
+    movies: pd.DataFrame, model_name="all-MiniLM-L6-v2", use_cache=True, cache_prefix=""
+):
+    """Sentence-transformer embeddings, cached per movieId. Returns (dict, avg_latency_sec).
+
+    `cache_prefix` namespaces the on-disk cache (e.g. "amazon_") so item ids
+    from different datasets never collide in the same cache file.
+    """
+    cache_name = f"{cache_prefix}sbert_{model_name}"
     cached = _load_cache(cache_name) if use_cache else {}
     missing = [mid for mid in movies["movieId"] if mid not in cached]
 
@@ -67,16 +73,19 @@ def build_sbert_features(movies: pd.DataFrame, model_name="all-MiniLM-L6-v2", us
     return {mid: cached[mid] for mid in movies["movieId"]}, avg_latency
 
 
-def build_llm_features(movies: pd.DataFrame, model_name="mxbai-embed-large", use_cache=True):
+def build_llm_features(
+    movies: pd.DataFrame, model_name="mxbai-embed-large", use_cache=True, cache_prefix=""
+):
     """Local LLM embeddings via Ollama's embed API, cached per movieId.
 
     Returns (dict, avg_latency_sec). Marginal API cost is $0 since this runs
     against a local Ollama server. Uses mxbai-embed-large (335M params) rather
     than a chat model like phi4-mini: Ollama's desktop-app-managed server only
     serves embeddings for models started in embedding mode, which chat models
-    aren't by default.
+    aren't by default. `cache_prefix` namespaces the on-disk cache (e.g.
+    "amazon_") so item ids from different datasets never collide.
     """
-    cache_name = f"llm_{model_name}"
+    cache_name = f"{cache_prefix}llm_{model_name}"
     cached = _load_cache(cache_name) if use_cache else {}
     missing = [mid for mid in movies["movieId"] if mid not in cached]
 

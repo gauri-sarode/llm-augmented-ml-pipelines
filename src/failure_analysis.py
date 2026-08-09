@@ -5,6 +5,7 @@ look like?
 Uses seed=1 (random split) and the LGBM scorer, reusing cached embeddings.
 """
 
+import argparse
 import sys
 from pathlib import Path
 
@@ -14,7 +15,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.candidates import build_user_candidates
-from src.data import load_movielens
+from src.dataset_registry import get_dataset, results_suffix
 from src.embeddings import build_llm_features, build_tfidf_features, features_for_ids
 from src.metrics import ndcg_at_k
 from src.pipeline import score_and_time, train_lgbm_ranker
@@ -22,7 +23,7 @@ from src.pipeline import score_and_time, train_lgbm_ranker
 SEED = 1
 K = 10
 NUM_EXAMPLES = 5
-RESULTS_PATH = Path(__file__).resolve().parent.parent / "results" / "failure_examples.csv"
+RESULTS_DIR = Path(__file__).resolve().parent.parent / "results"
 
 
 def per_user_ndcg(test_df, scores):
@@ -42,12 +43,19 @@ def describe_user_positives(test_df, movies, user_id):
 
 
 def main():
-    print("Loading MovieLens (ml-latest-small)...")
-    ratings, movies = load_movielens()
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--dataset", default="movielens", choices=["movielens", "amazon", "yelp"]
+    )
+    args = parser.parse_args()
+
+    load_fn, cache_prefix, label = get_dataset(args.dataset)
+    print(f"Loading {label}...")
+    ratings, movies = load_fn()
 
     tfidf_dict, _ = build_tfidf_features(movies)
     print("Loading mxbai-embed-large embeddings (from cache)...")
-    llm_dict, _ = build_llm_features(movies)
+    llm_dict, _ = build_llm_features(movies, cache_prefix=cache_prefix)
 
     train_df, test_df = build_user_candidates(ratings, movies, seed=SEED)
 
@@ -84,8 +92,9 @@ def main():
         lambda u: describe_user_positives(test_df, movies, u)
     )
 
-    RESULTS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    examples.to_csv(RESULTS_PATH, index=False)
+    results_path = RESULTS_DIR / f"failure_examples{results_suffix(args.dataset)}.csv"
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    examples.to_csv(results_path, index=False)
 
     print(f"\n=== Biggest LLM-pipeline regressions vs. TF-IDF baseline (seed={SEED}) ===")
     for _, row in regressions.iterrows():
@@ -103,7 +112,7 @@ def main():
             f"{describe_user_positives(test_df, movies, row.userId)}"
         )
 
-    print(f"\nSaved to {RESULTS_PATH}")
+    print(f"\nSaved to {results_path}")
 
 
 if __name__ == "__main__":

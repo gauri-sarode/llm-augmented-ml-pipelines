@@ -6,6 +6,7 @@ Reuses the feature-set builder from run_experiment.py so cached SBERT/LLM
 embeddings aren't recomputed.
 """
 
+import argparse
 import gc
 import sys
 from pathlib import Path
@@ -15,7 +16,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.candidates import build_user_candidates
-from src.data import load_movielens
+from src.dataset_registry import get_dataset, results_suffix
 from src.embeddings import features_for_ids, hybrid_features_for_ids
 from src.metrics import aggregate, evaluate_ranking
 from src.pipeline import score_and_time, train_lgbm_ranker
@@ -23,9 +24,7 @@ from src.run_experiment import K, build_feature_sets
 
 SEEDS = [1, 2, 3]
 SPLIT_METHODS = ["random", "temporal"]
-RESULTS_PATH = (
-    Path(__file__).resolve().parent.parent / "results" / "results_table_robustness.csv"
-)
+RESULTS_DIR = Path(__file__).resolve().parent.parent / "results"
 
 
 def run_pipeline(train_df, test_df, feature_dicts):
@@ -47,10 +46,17 @@ def run_pipeline(train_df, test_df, feature_dicts):
 
 
 def main():
-    print("Loading MovieLens (ml-latest-small)...")
-    ratings, movies = load_movielens()
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--dataset", default="movielens", choices=["movielens", "amazon", "yelp"]
+    )
+    args = parser.parse_args()
 
-    feature_sets = build_feature_sets(movies)
+    load_fn, cache_prefix, label = get_dataset(args.dataset)
+    print(f"Loading {label}...")
+    ratings, movies = load_fn()
+
+    feature_sets = build_feature_sets(movies, cache_prefix=cache_prefix)
     per_combo = {
         (name, split): {"ndcgs": [], "recalls": []}
         for name in feature_sets
@@ -91,12 +97,13 @@ def main():
         )
 
     results_table = pd.DataFrame(rows)
-    RESULTS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    results_table.to_csv(RESULTS_PATH, index=False)
+    results_path = RESULTS_DIR / f"results_table_robustness{results_suffix(args.dataset)}.csv"
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    results_table.to_csv(results_path, index=False)
 
     print("\n=== Robustness: random vs. temporal split ===")
     print(results_table.to_string(index=False))
-    print(f"\nSaved to {RESULTS_PATH}")
+    print(f"\nSaved to {results_path}")
 
 
 if __name__ == "__main__":

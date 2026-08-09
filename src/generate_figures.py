@@ -5,6 +5,7 @@ blue, orange, aqua, yellow) documented in the dataviz skill's palette
 reference rather than matplotlib's default color cycle.
 """
 
+import argparse
 import sys
 from pathlib import Path
 
@@ -15,6 +16,8 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from src.dataset_registry import results_suffix
 
 RESULTS_DIR = Path(__file__).resolve().parent.parent / "results"
 FIGURES_DIR = Path(__file__).resolve().parent.parent / "paper" / "figures"
@@ -41,8 +44,9 @@ def _clean_axes(ax):
     ax.tick_params(axis="both", colors=TEXT_SECONDARY, length=0)
 
 
-def plot_main_results():
-    df = pd.read_csv(RESULTS_DIR / "results_table.csv")
+def plot_main_results(dataset="movielens"):
+    suffix = results_suffix(dataset)
+    df = pd.read_csv(RESULTS_DIR / f"results_table{suffix}.csv")
     df = df[df["Scorer"] == "lgbm"].copy()
     df["ShortName"] = df["Pipeline"].map(SHORT_NAMES)
 
@@ -78,14 +82,15 @@ def plot_main_results():
 
     fig.tight_layout()
     FIGURES_DIR.mkdir(parents=True, exist_ok=True)
-    out_path = FIGURES_DIR / "main_results.png"
+    out_path = FIGURES_DIR / f"main_results{suffix}.png"
     fig.savefig(out_path)
     plt.close(fig)
     print(f"Saved {out_path}")
 
 
-def plot_robustness():
-    df = pd.read_csv(RESULTS_DIR / "results_table_robustness.csv")
+def plot_robustness(dataset="movielens"):
+    suffix = results_suffix(dataset)
+    df = pd.read_csv(RESULTS_DIR / f"results_table_robustness{suffix}.csv")
     df["ShortName"] = df["Pipeline"].map(SHORT_NAMES)
 
     fig, ax = plt.subplots(figsize=(6.5, 4), dpi=200)
@@ -124,12 +129,17 @@ def plot_robustness():
 
     fig.tight_layout()
     FIGURES_DIR.mkdir(parents=True, exist_ok=True)
-    out_path = FIGURES_DIR / "robustness.png"
+    out_path = FIGURES_DIR / f"robustness{suffix}.png"
     fig.savefig(out_path)
     plt.close(fig)
     print(f"Saved {out_path}")
 
 
 if __name__ == "__main__":
-    plot_main_results()
-    plot_robustness()
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--dataset", default="movielens", choices=["movielens", "amazon", "yelp"]
+    )
+    args = parser.parse_args()
+    plot_main_results(args.dataset)
+    plot_robustness(args.dataset)

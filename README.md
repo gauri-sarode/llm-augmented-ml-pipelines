@@ -5,13 +5,20 @@ unnecessary inside a recommendation-ranking ML pipeline — measured on
 ranking quality, stability across seeds, robustness under distribution
 shift, and latency/cost, not just a single accuracy number.
 
-**Paper draft (IEEE format):** [`paper/main.pdf`](paper/main.pdf) — MovieLens
-results complete; Amazon Reviews and Yelp sections are open for the
-coauthor (see [Status](#status) below).
+**Paper draft (IEEE format):** [`paper/main.pdf`](paper/main.pdf) — complete
+results for all three datasets (MovieLens, Amazon Reviews, Yelp); only the
+author name/affiliation placeholders remain (see [Status](#status) below).
 
 ## Task
 
-MovieLens (`ml-latest-small`) implicit-feedback, per-user ranking:
+Three datasets, each cast as implicit-feedback, per-user ranking:
+MovieLens (`ml-latest-small`, short title+genre item text), Amazon
+Reviews (`All_Beauty` 5-core, long free-form review text), and Yelp
+(Boise, ID subset, long free-form review text). See
+[`paper/sections/05_experimental_setup.tex`](paper/sections/05_experimental_setup.tex)
+for exact dataset sizes and construction.
+
+MovieLens specifics:
 - Positive interaction: rating >= 4.0
 - Per user: hold out a slice of positives for test, sample negative candidates
   from unrated movies (random split for main results; a temporal split for
@@ -53,15 +60,26 @@ ollama pull mxbai-embed-large      # only needed if not already present
 
 ```bash
 pytest tests/                     # unit + smoke tests
-python src/run_experiment.py      # main results: 4 pipelines x 2 scorers x 5 seeds
-python src/run_robustness.py      # robustness: random vs. temporal split, 3 seeds
-python src/failure_analysis.py    # qualitative per-user regression/gain examples
-python src/generate_figures.py    # paper figures -> paper/figures/*.png
+
+# --dataset defaults to movielens; also accepts amazon, yelp
+python src/run_experiment.py --dataset movielens   # main results: 4 pipelines x 2 scorers x 5 seeds
+python src/run_robustness.py --dataset movielens    # robustness: random vs. temporal split, 3 seeds
+python src/failure_analysis.py --dataset movielens  # qualitative per-user regression/gain examples
+python src/generate_figures.py --dataset movielens  # paper figures -> paper/figures/*.png
 
 cd paper && pdflatex main.tex && bibtex main && pdflatex main.tex && pdflatex main.tex
 ```
 
-Results land in `results/*.csv`. On a memory-constrained machine, LightGBM's
+Amazon Reviews and Yelp download their raw data on first run
+(`src/data_amazon.py`, `src/data_yelp.py`); Yelp additionally requires
+placing `yelp_dataset.tar` (from registering at
+[yelp.com/dataset](https://www.yelp.com/dataset)) under `data/yelp/`
+first, since it isn't otherwise downloadable without agreeing to Yelp's
+terms.
+
+Results land in `results/*.csv` (suffixed `_amazon`/`_yelp` for those
+datasets; the movielens run keeps the original unsuffixed filenames). On
+a memory-constrained machine, LightGBM's
 thread count is capped at 4 (`src/pipeline.py`) specifically to avoid swap
 thrashing when running alongside other apps — see `num_threads` there if
 running on a dedicated/high-memory machine where you'd rather let it use all
@@ -124,39 +142,79 @@ users with very few (1–3) held-out positives, where per-user NDCG@10 is a
 coarse, high-variance statistic — see `paper/sections/07_failure_analysis.tex`
 for the full qualitative breakdown.
 
-Full narrative, all tables, and both figures are in
-[`paper/main.pdf`](paper/main.pdf).
+## Results (Amazon Reviews, `All_Beauty` 5-core)
+
+**Main comparison** (LGBMRanker, 5-seed mean ± 95% CI):
+
+| Pipeline | NDCG@10 | Recall@10 | Embed latency (ms/item) |
+|---|---|---|---|
+| Baseline (TF-IDF) | 0.0972 ± 0.0030 | 0.1854 ± 0.0133 | 0.00 |
+| SBERT (all-MiniLM-L6-v2) | 0.0994 ± 0.0071 | 0.1899 ± 0.0175 | 11.72 |
+| LLM (mxbai-embed-large, local) | 0.0982 ± 0.0048 | 0.1908 ± 0.0138 | 765.52 |
+| Hybrid (TF-IDF + mxbai-embed-large) | 0.0975 ± 0.0068 | 0.1862 ± 0.0104 | 765.52 |
+
+Unlike MovieLens, all four pipelines land within each other's confidence
+intervals — the classical-vs-embedding gap effectively disappears on
+this dataset's long, review-derived item text. Embedding latency for the
+LLM/hybrid pipelines jumps to 765.52 ms/item (25x higher than
+MovieLens's 30.25 ms/item) purely because the input text is much longer.
+
+## Results (Yelp, Boise ID subset)
+
+**Main comparison** (LGBMRanker, 5-seed mean ± 95% CI):
+
+| Pipeline | NDCG@10 | Recall@10 | Embed latency (ms/item) |
+|---|---|---|---|
+| Baseline (TF-IDF) | 0.4672 ± 0.0032 | 0.7049 ± 0.0040 | 0.00 |
+| SBERT (all-MiniLM-L6-v2) | 0.4665 ± 0.0029 | 0.7040 ± 0.0024 | 24.43 |
+| LLM (mxbai-embed-large, local) | 0.4668 ± 0.0026 | 0.7046 ± 0.0028 | 914.15 |
+| Hybrid (TF-IDF + mxbai-embed-large) | 0.4661 ± 0.0029 | 0.7032 ± 0.0033 | 914.15 |
+
+With 10,537 qualifying users, this dataset has the tightest confidence
+intervals of the three — and still shows no separation between
+pipelines, the strongest evidence in this study that LLM-scale (and
+even small-embedding) augmentation isn't a reliable win on long,
+review-derived item text.
+
+**Cross-dataset takeaway:** the "LLM-scale embeddings ≈ small SBERT
+embeddings" half of the MovieLens finding replicates on both new
+datasets — LLM-scale embeddings never meaningfully beat SBERT anywhere.
+The "embeddings > TF-IDF" half does *not* replicate: on Amazon Reviews
+and Yelp, TF-IDF is statistically indistinguishable from every embedding
+pipeline. Full narrative, per-dataset robustness/failure-analysis
+results, and all figures are in
+[`paper/sections/06_results.tex`](paper/sections/06_results.tex)
+(§Cross-Dataset Synthesis) and [`paper/main.pdf`](paper/main.pdf).
 
 ## Repo layout
 
 ```
 src/
   data.py               — download/cache MovieLens, build item text corpus
-  candidates.py          — per-user train/test split (random or temporal) + negative sampling
-  embeddings.py           — TF-IDF, SBERT, LLM (Ollama) features, disk-cached
-  metrics.py               — per-user NDCG@K / Recall@K + aggregate stats
-  pipeline.py                — LGBMRanker + MLP scorers
-  run_experiment.py           — main results: pipelines x scorers x seeds
-  run_robustness.py            — random vs. temporal split comparison
-  failure_analysis.py           — qualitative per-user regression/gain examples
-  generate_figures.py            — paper figures
-tests/                            — pytest unit + smoke tests
-results/                          — output CSVs
-paper/                            — IEEE LaTeX source + compiled main.pdf
+  data_amazon.py          — download/cache Amazon Reviews (All_Beauty 5-core), build item text corpus
+  data_yelp.py              — load a Yelp Open Dataset city subset from yelp_dataset.tar, build item text corpus
+  dataset_registry.py        — maps --dataset name to loader, cache namespace, results-filename suffix
+  candidates.py                — per-user train/test split (random or temporal) + negative sampling
+  embeddings.py                  — TF-IDF, SBERT, LLM (Ollama) features, disk-cached (namespaced per dataset)
+  metrics.py                       — per-user NDCG@K / Recall@K + aggregate stats
+  pipeline.py                        — LGBMRanker + MLP scorers
+  run_experiment.py                    — main results: pipelines x scorers x seeds
+  run_robustness.py                     — random vs. temporal split comparison
+  failure_analysis.py                    — qualitative per-user regression/gain examples
+  generate_figures.py                     — paper figures
+tests/                                    — pytest unit + smoke tests
+results/                                  — output CSVs
+paper/                                    — IEEE LaTeX source + compiled main.pdf
 ```
 
 ## Status
 
-**MovieLens: complete.** Four pipelines, two scorers, stability (5 seeds),
-robustness (temporal shift), qualitative failure analysis, cost/latency —
-matches the full paper outline for this dataset.
+**Complete: MovieLens, Amazon Reviews, and Yelp.** All three datasets
+have four pipelines, two scorers, stability (5 seeds), robustness
+(temporal shift), qualitative failure analysis, and cost/latency —
+matching the full paper outline. Cross-dataset synthesis is in
+[`paper/sections/06_results.tex`](paper/sections/06_results.tex).
 
-**Open for the coauthor:** Amazon Reviews and Yelp. The pipeline code
-(`src/run_experiment.py`, `run_robustness.py`, `generate_figures.py`) is
-dataset-agnostic given an Amazon/Yelp-specific loader following the pattern
-in `src/data.py`. The paper (`paper/sections/`) has matching subsections
-already stubbed out with `\coauthortodo{}` markers (render in red in the
-PDF) — same structure as the MovieLens sections, ready to fill in directly.
-Note: the Yelp Open Dataset now requires registering at
-[yelp.com/dataset](https://www.yelp.com/dataset) — an earlier exploratory
-notebook's direct-download URL for it no longer works.
+**Open for the coauthor:** author name/affiliation only
+(`\coauthortodo{}` markers in `paper/main.tex`, render in red in the
+PDF) — no experimental work remains.

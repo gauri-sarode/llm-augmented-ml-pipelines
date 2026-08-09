@@ -6,6 +6,7 @@ For a given seed, all pipelines are evaluated on the *same* train/test
 candidate split (controlled comparison) — only the item features differ.
 """
 
+import argparse
 import sys
 from pathlib import Path
 
@@ -15,7 +16,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.candidates import build_user_candidates
-from src.data import load_movielens
+from src.dataset_registry import get_dataset, results_suffix
 from src.embeddings import (
     build_llm_features,
     build_sbert_features,
@@ -29,18 +30,18 @@ from src.pipeline import score_and_time, train_lgbm_ranker, train_mlp_scorer
 SEEDS = [1, 2, 3, 4, 5]
 K = 10
 SCORERS = ["lgbm", "mlp"]
-RESULTS_PATH = Path(__file__).resolve().parent.parent / "results" / "results_table.csv"
+RESULTS_DIR = Path(__file__).resolve().parent.parent / "results"
 
 
-def build_feature_sets(movies):
+def build_feature_sets(movies, cache_prefix=""):
     """Build item feature dicts for all pipelines once (shared across seeds)."""
     tfidf_dict, tfidf_latency = build_tfidf_features(movies)
 
     print("Building SBERT embeddings (all-MiniLM-L6-v2)...")
-    sbert_dict, sbert_latency = build_sbert_features(movies)
+    sbert_dict, sbert_latency = build_sbert_features(movies, cache_prefix=cache_prefix)
 
     print("Building mxbai-embed-large embeddings via Ollama (cached after first run)...")
-    llm_dict, llm_latency = build_llm_features(movies)
+    llm_dict, llm_latency = build_llm_features(movies, cache_prefix=cache_prefix)
 
     return {
         "Baseline (TF-IDF)": {"features": (tfidf_dict,), "embed_latency": tfidf_latency},
@@ -74,11 +75,18 @@ def run_pipeline(train_df, test_df, feature_dicts, scorer, seed):
 
 
 def main():
-    print("Loading MovieLens (ml-latest-small)...")
-    ratings, movies = load_movielens()
-    print(f"{len(ratings)} ratings, {len(movies)} rated movies")
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--dataset", default="movielens", choices=["movielens", "amazon", "yelp"]
+    )
+    args = parser.parse_args()
 
-    feature_sets = build_feature_sets(movies)
+    load_fn, cache_prefix, label = get_dataset(args.dataset)
+    print(f"Loading {label}...")
+    ratings, movies = load_fn()
+    print(f"{len(ratings)} ratings, {len(movies)} rated items")
+
+    feature_sets = build_feature_sets(movies, cache_prefix=cache_prefix)
     per_pipeline = {
         (name, scorer): {"ndcgs": [], "recalls": [], "latencies": []}
         for name in feature_sets
@@ -123,12 +131,13 @@ def main():
             )
 
     results_table = pd.DataFrame(rows)
-    RESULTS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    results_table.to_csv(RESULTS_PATH, index=False)
+    results_path = RESULTS_DIR / f"results_table{results_suffix(args.dataset)}.csv"
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    results_table.to_csv(results_path, index=False)
 
     print("\n=== Results (stability across 5 seeds) ===")
     print(results_table.to_string(index=False))
-    print(f"\nSaved to {RESULTS_PATH}")
+    print(f"\nSaved to {results_path}")
 
 
 if __name__ == "__main__":
