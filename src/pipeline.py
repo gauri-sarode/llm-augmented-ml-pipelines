@@ -29,11 +29,15 @@ def train_lgbm_ranker(train_df: pd.DataFrame, X_train: np.ndarray, **lgbm_kwargs
         num_leaves=64,
         verbosity=-1,
         # Capped rather than left at "use all cores": LightGBM's per-thread
-        # histogram buffers scale with thread count, and on a memory-constrained
-        # machine running other apps, uncapped threading was causing swap
-        # thrashing that made runs orders of magnitude slower than a modest
-        # thread cap does. Doesn't change results, just peak memory/wall-time.
-        num_threads=4,
+        # histogram buffers scale with thread count x feature count. Past
+        # thrash episodes traced to `llama-server` staying resident during
+        # scoring and to a memory leak across the 50-fit run_experiment.py
+        # loop (both now fixed) rather than to this thread count itself.
+        # Bumped 4->6 (of 10 physical cores) under a submission deadline for
+        # a straightforward speedup with no effect on results, now that the
+        # actual leak/contention sources are fixed rather than papered over
+        # with a lower thread count.
+        num_threads=6,
     )
     params.update(lgbm_kwargs)
 
@@ -64,7 +68,11 @@ def train_mlp_scorer(train_df: pd.DataFrame, X_train: np.ndarray, seed: int = 0,
     )
     params.update(mlp_kwargs)
 
-    model = Pipeline([("scaler", StandardScaler()), ("mlp", MLPRegressor(**params))])
+    # copy=False: scale in place rather than allocating a full duplicate of
+    # X_train -- identical output, just avoids doubling peak memory for the
+    # widest (Hybrid, 5072-dim) feature matrix, which has been the recurring
+    # site of severe swap thrashing on this machine.
+    model = Pipeline([("scaler", StandardScaler(copy=False)), ("mlp", MLPRegressor(**params))])
     model.fit(X_train, train_df["relevance"].to_numpy())
     return model
 

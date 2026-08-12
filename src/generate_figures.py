@@ -22,7 +22,14 @@ from src.dataset_registry import results_suffix
 RESULTS_DIR = Path(__file__).resolve().parent.parent / "results"
 FIGURES_DIR = Path(__file__).resolve().parent.parent / "paper" / "figures"
 
-CATEGORICAL = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100"]  # blue, orange, aqua, yellow
+CATEGORICAL = [
+    "#2a78d6",  # blue
+    "#eb6834",  # orange
+    "#1baf7a",  # aqua
+    "#eda100",  # yellow
+    "#e87ba4",  # magenta
+]
+
 TEXT_PRIMARY = "#0b0b0b"
 TEXT_SECONDARY = "#52514e"
 GRID = "#dddddd"
@@ -30,8 +37,9 @@ GRID = "#dddddd"
 SHORT_NAMES = {
     "Baseline (TF-IDF)": "TF-IDF",
     "SBERT (all-MiniLM-L6-v2)": "SBERT",
-    "LLM (mxbai-embed-large, local)": "LLM",
-    "Hybrid (TF-IDF + mxbai-embed-large)": "Hybrid",
+    "Large Embedding Model (mxbai-embed-large)": "Large Embed",
+    "LLM (phi4-mini, local)": "LLM",
+    "Hybrid (TF-IDF + phi4-mini)": "Hybrid",
 }
 
 
@@ -50,7 +58,7 @@ def plot_main_results(dataset="movielens"):
     df = df[df["Scorer"] == "lgbm"].copy()
     df["ShortName"] = df["Pipeline"].map(SHORT_NAMES)
 
-    fig, ax = plt.subplots(figsize=(6, 4), dpi=200)
+    fig, ax = plt.subplots(figsize=(7.5, 4), dpi=200)
     x = range(len(df))
     bars = ax.bar(
         x,
@@ -93,7 +101,7 @@ def plot_robustness(dataset="movielens"):
     df = pd.read_csv(RESULTS_DIR / f"results_table_robustness{suffix}.csv")
     df["ShortName"] = df["Pipeline"].map(SHORT_NAMES)
 
-    fig, ax = plt.subplots(figsize=(6.5, 4), dpi=200)
+    fig, ax = plt.subplots(figsize=(8.5, 4.5), dpi=200)
     x = list(range(len(df)))
     width = 0.35
 

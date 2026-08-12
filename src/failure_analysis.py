@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.candidates import build_user_candidates
 from src.dataset_registry import get_dataset, results_suffix
-from src.embeddings import build_llm_features, build_tfidf_features, features_for_ids
+from src.embeddings import build_tfidf_features, build_true_llm_features, features_for_ids
 from src.metrics import ndcg_at_k
 from src.pipeline import score_and_time, train_lgbm_ranker
 
@@ -54,8 +54,8 @@ def main():
     ratings, movies = load_fn()
 
     tfidf_dict, _ = build_tfidf_features(movies)
-    print("Loading mxbai-embed-large embeddings (from cache)...")
-    llm_dict, _ = build_llm_features(movies, cache_prefix=cache_prefix)
+    print("Loading phi4-mini embeddings (from cache)...")
+    llm_dict, _ = build_true_llm_features(movies, cache_prefix=cache_prefix)
 
     train_df, test_df = build_user_candidates(ratings, movies, seed=SEED)
 

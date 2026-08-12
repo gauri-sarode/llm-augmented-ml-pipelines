@@ -45,36 +45,76 @@ def run_pipeline(train_df, test_df, feature_dicts):
     return ndcg, recall
 
 
+def _load_combo_checkpoint(checkpoint_path):
+    if checkpoint_path.exists():
+        return pd.read_csv(checkpoint_path)
+    return pd.DataFrame(columns=["Seed", "Split", "Pipeline", "NDCG", "Recall"])
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--dataset", default="movielens", choices=["movielens", "amazon", "yelp"]
     )
+    parser.add_argument(
+        "--num-seeds",
+        type=int,
+        default=len(SEEDS),
+        help="Use only the first N of SEEDS -- a submission-deadline speed/rigor "
+        "tradeoff for a specific dataset; note in the writeup which datasets used "
+        "fewer than the full 3 robustness seeds.",
+    )
     args = parser.parse_args()
+    active_seeds = SEEDS[: args.num_seeds]
 
     load_fn, cache_prefix, label = get_dataset(args.dataset)
     print(f"Loading {label}...")
     ratings, movies = load_fn()
 
     feature_sets = build_feature_sets(movies, cache_prefix=cache_prefix)
-    per_combo = {
-        (name, split): {"ndcgs": [], "recalls": []}
-        for name in feature_sets
-        for split in SPLIT_METHODS
-    }
 
-    for seed in SEEDS:
+    # Same per-combo checkpointing rationale as run_experiment.py: a crash
+    # partway through this loop previously lost every (seed, split) combo
+    # computed so far, since results were only ever written once at the end.
+    suffix = results_suffix(args.dataset)
+    checkpoint_path = RESULTS_DIR / f"robustness_checkpoint{suffix}.csv"
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    checkpoint_df = _load_combo_checkpoint(checkpoint_path)
+    done_combos = (
+        set(zip(checkpoint_df["Seed"], checkpoint_df["Split"])) if len(checkpoint_df) else set()
+    )
+
+    for seed in active_seeds:
         for split_method in SPLIT_METHODS:
+            if (seed, split_method) in done_combos:
+                print(f"\n=== Seed {seed}, split={split_method} (skipped, already checkpointed) ===")
+                continue
             print(f"\n=== Seed {seed}, split={split_method} ===")
             train_df, test_df = build_user_candidates(
                 ratings, movies, seed=seed, split_method=split_method
             )
+            combo_rows = []
             for name, spec in feature_sets.items():
                 ndcg, recall = run_pipeline(train_df, test_df, spec["features"])
-                r = per_combo[(name, split_method)]
-                r["ndcgs"].append(ndcg)
-                r["recalls"].append(recall)
+                combo_rows.append(
+                    {"Seed": seed, "Split": split_method, "Pipeline": name, "NDCG": ndcg, "Recall": recall}
+                )
                 print(f"  {name}: NDCG@{K}={ndcg:.4f}  Recall@{K}={recall:.4f}")
+            checkpoint_df = pd.concat([checkpoint_df, pd.DataFrame(combo_rows)], ignore_index=True)
+            checkpoint_df.to_csv(checkpoint_path, index=False)
+
+    per_combo = {
+        (name, split): {
+            "ndcgs": checkpoint_df[
+                (checkpoint_df["Pipeline"] == name) & (checkpoint_df["Split"] == split)
+            ]["NDCG"].tolist(),
+            "recalls": checkpoint_df[
+                (checkpoint_df["Pipeline"] == name) & (checkpoint_df["Split"] == split)
+            ]["Recall"].tolist(),
+        }
+        for name in feature_sets
+        for split in SPLIT_METHODS
+    }
 
     rows = []
     for name in feature_sets:
@@ -100,6 +140,7 @@ def main():
     results_path = RESULTS_DIR / f"results_table_robustness{results_suffix(args.dataset)}.csv"
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     results_table.to_csv(results_path, index=False)
+    checkpoint_path.unlink(missing_ok=True)
 
     print("\n=== Robustness: random vs. temporal split ===")
     print(results_table.to_string(index=False))
