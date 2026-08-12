@@ -178,6 +178,12 @@ SHORT_NAMES = {
 
 
 def format_latex_table(qc_df, dataset_label):
+    # Single-column IEEEtran width can't fit 7 verbose columns at normal
+    # size without pushing the last 1-2 columns off the page margin
+    # (silently -- pdflatex only warns "Overfull \hbox", it doesn't error).
+    # \scriptsize + tight \tabcolsep + a merged Sig./asterisk column keeps
+    # every column on the visible page; verified by rendering to PNG and
+    # inspecting, not just checking the page count.
     lines = []
     lines.append(r"\begin{table}[t]")
     lines.append(r"\centering")
@@ -192,24 +198,37 @@ def format_latex_table(qc_df, dataset_label):
         + r" latency to compare.}"
     )
     lines.append(r"\label{tab:quality-cost-" + dataset_label.lower().replace(" ", "-") + "}")
-    lines.append(r"\begin{tabular}{lrrrrrr}")
+    lines.append(r"\scriptsize")
+    lines.append(r"\setlength{\tabcolsep}{3pt}")
+    lines.append(r"\begin{tabular}{lrrrrr}")
     lines.append(r"\toprule")
-    lines.append(
-        r"Pipeline & NDCG@10 & Mean (ms) & Median (ms) & Rel.\ latency & $\Delta$NDCG vs.\ SBERT & Sig.\ \\"
-    )
+    lines.append(r"Pipeline & NDCG@10 & Mean (ms) & Med.\ (ms) & Rel.\ lat.\ & $\Delta$NDCG \\")
     lines.append(r"\midrule")
+    any_significant = False
     for _, row in qc_df.iterrows():
         name = SHORT_NAMES.get(row["Pipeline"], row["Pipeline"])
         rel = "--" if pd.isna(row["RelativeLatency_vs_SBERT"]) else f"${row['RelativeLatency_vs_SBERT']:.1f}\\times$"
         median = "--" if pd.isna(row["MedianLatency_ms_per_item"]) else f"{row['MedianLatency_ms_per_item']:.2f}"
-        delta = f"{row['DeltaNDCG_vs_SBERT']:+.4f}"
-        sig = "yes" if row["Significant_vs_SBERT"] else ("--" if name == "SBERT" else "no")
+        significant = bool(row["Significant_vs_SBERT"])
+        any_significant = any_significant or significant
+        star = "^{*}" if significant else ""
+        delta = f"${row['DeltaNDCG_vs_SBERT']:+.4f}{star}$"
         lines.append(
             f"{name} & {row['NDCG@10']:.4f} & {row['Latency_ms_per_item']:.2f} & {median} & "
-            f"{rel} & {delta} & {sig} \\\\"
+            f"{rel} & {delta} \\\\"
         )
     lines.append(r"\bottomrule")
     lines.append(r"\end{tabular}")
+    lines.append(r"\vspace{2pt}")
+    if any_significant:
+        lines.append(
+            r"{\scriptsize $^{*}$significant: 95\% CI (across seeds) vs.\ SBERT does not overlap.\par}"
+        )
+    else:
+        lines.append(
+            r"{\scriptsize None of the above $\Delta$NDCG values are significant"
+            r" (95\% CI vs.\ SBERT overlaps).\par}"
+        )
     lines.append(r"\end{table}")
     return "\n".join(lines)
 
