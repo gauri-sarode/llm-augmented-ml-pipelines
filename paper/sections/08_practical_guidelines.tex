@@ -1,0 +1,48 @@
+\section{Practical Guidelines}
+\label{sec:practical-guidelines}
+
+The findings above give an ordered checklist for deciding whether to
+put a larger encoder, or an LLM, into an existing ranking pipeline.
+
+\begin{enumerate}
+  \setcounter{enumi}{-1}
+  \item \textbf{Check the evaluation before the encoder.} Make sure the
+    scorer actually sees the user, for example through
+    profile-similarity features, and evaluate with negatives that
+    popularity alone cannot separate. Report a popularity baseline and a
+    collaborative baseline. Without these three things every encoder
+    can look the same, and the comparison is uninformative
+    (\S\ref{sec:movielens-results}).
+  \item \textbf{Choose which text to embed.} Within one corpus,
+    fields with highly redundant text (e.g.\ a small tag vocabulary)
+    favored TF-IDF, and distinctive fields favored dense encoders.
+    Mean pairwise TF-IDF cosine measures this without training. It does
+    not compare corpora: Yelp's highly redundant reviews still favored
+    the dense encoder (\S\ref{sec:redundancy-analysis}).
+  \item \textbf{Try the smallest dense encoder first.} The step from
+    TF-IDF to a 22M-parameter encoder was the most consistent gain,
+    significant on all three datasets. Benchmark every larger encoder against that small one,
+    not against TF-IDF. Otherwise the small encoder's gain gets credited
+    to the large one.
+  \item \textbf{Never use a chat LLM's raw hidden states as an
+    embedding.} Mean-pooled phi4-mini was worse than TF-IDF and than a
+    text-free collaborative model on short metadata, and failed under
+    the MLP scorer everywhere. Centering did not fix it. If an LLM-scale
+    encoder is wanted, use one trained for embedding
+    (\S\ref{sec:failure-analysis}).
+  \item \textbf{Size the test to the gain you are looking for.} Gains
+    above the small encoder were at most 0.016 NDCG@10 and needed
+    $\sim$10K users to detect. With a few hundred users, report an
+    equivalence test, and treat a non-significant result as no
+    evidence, not as no gain (\S\ref{sec:amazon-results}).
+  \item \textbf{Price the serving path.} Item embeddings are content
+    features, so they are computed once per item update and cached, and
+    a large per-item latency matters little offline. It becomes a hard
+    constraint only when items change often or must be embedded at
+    request time. Measured like-for-like, a 4B model cost 18--70$\times$
+    SBERT per item here, more on long text, for at most 0.016 NDCG@10
+    (\S\ref{sec:quality-cost}).
+  \item \textbf{Re-check under temporal shift.} Use a split that holds
+    out each user's most recent interactions, not only a random one
+    (\S\ref{sec:robustness}).
+\end{enumerate}

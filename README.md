@@ -71,18 +71,25 @@ llama-server \
 ```bash
 pytest tests/                     # unit + smoke tests
 
-# --dataset defaults to movielens; also accepts amazon, yelp
-python src/run_experiment.py --dataset movielens     # main results: 5 pipelines x 2 scorers x 5 seeds
-python src/run_robustness.py --dataset movielens      # robustness: random vs. temporal split, 3 seeds
-python src/failure_analysis.py --dataset movielens    # qualitative per-user regression/gain examples
-python src/generate_figures.py --dataset movielens    # regenerates result figures
-python src/quality_cost_analysis.py --dataset movielens  # clean, uncached quality-vs-latency benchmark
-python src/redundancy_analysis.py                     # corpus lexical redundancy vs. embedding benefit, all 3 datasets
+# --dataset: movielens (default), movielens-title, movielens-genres, amazon, yelp
+# --features: item | personalized | personalized_pop (default)
+# --negatives: uniform (default) | popularity     --split: random (default) | temporal
+python -m src.run_experiment --dataset movielens --negatives popularity     # main configuration
+python -m src.run_experiment --dataset movielens --features item --negatives popularity   # item-only ablation
+python -m src.run_experiment --dataset movielens --negatives popularity --split temporal --scorers lgbm
+python -m src.run_experiment --dataset movielens-genres --negatives popularity --scorers lgbm --pipelines TF-IDF SBERT
+
+python -m src.stats results/per_user_personalized_pop_neg-popularity.csv   # paired t / TOST tests
+python -m src.make_tables                       # paper/tables/*.tex from results CSVs
+python -m src.representation_analysis geometry --dataset yelp  # §VII embedding geometry
+python -m src.representation_analysis affinity --dataset yelp  # §VII affinity-only ranking (also: history, centering)
+python -m src.latency_benchmark --dataset movielens   # like-for-like latency; run on an idle machine
 ```
 
 Amazon Reviews and Yelp download their raw data on first run
 (`src/data_amazon.py`, `src/data_yelp.py`); Yelp additionally requires
-placing `yelp_dataset.tar` (from registering at
+placing `yelp_dataset.tar` (direct download: Yelp-JSON.zip from
+https://business.yelp.com/data/resources/open-dataset/, or from registering at
 [yelp.com/dataset](https://www.yelp.com/dataset)) under `data/yelp/`
 first, since it isn't otherwise downloadable without agreeing to Yelp's
 terms.
@@ -95,126 +102,23 @@ thrashing when running alongside other apps — see `num_threads` there if
 running on a dedicated/high-memory machine where you'd rather let it use all
 cores.
 
-## Results (ml-latest-small)
+## Results
 
-**Main comparison** (LGBMRanker, 5-seed mean ± 95% CI):
+Every number in the paper comes from the per-user CSVs in `results/`:
+`python -m src.stats` runs the paired tests and `python -m src.make_tables`
+writes the LaTeX tables in `paper/tables/`. Headline results (popularity-matched
+negatives, personalized scorer, LGBMRanker, NDCG@10, 5 seeds):
 
-| Pipeline | NDCG@10 | Recall@10 | Embed latency (ms/item)\* |
+| Pipeline | MovieLens | Amazon | Yelp |
 |---|---|---|---|
-| Baseline (TF-IDF) | 0.7055 ± 0.0065 | 0.6080 ± 0.0062 | 0.00 |
-| SBERT (all-MiniLM-L6-v2) | 0.7258 ± 0.0043 | 0.6377 ± 0.0064 | 0.43 |
-| Large Embedding Model (mxbai-embed-large) | 0.7255 ± 0.0056 | 0.6396 ± 0.0071 | -- |
-| LLM (phi4-mini, local) | 0.7250 ± 0.0058 | 0.6399 ± 0.0071 | 262.17 |
-| Hybrid (TF-IDF + phi4-mini) | 0.7251 ± 0.0051 | 0.6396 ± 0.0072 | 262.17 |
-
-\* A dedicated, uncached re-benchmark (mean; see `results/quality_cost.tex`
-for mean+median and the SBERT-relative cost multiplier) — not simple
-production-run figures, which can be cache-contaminated. Large Embedding
-Model is omitted here because it was already cached at measurement time. In
-production, item embeddings are content features computed once and cached,
-so this cost is amortized, not paid per query.
-
-None of the three larger-capacity pipelines (the dedicated large embedding
-model, the LLM, or their hybrid with TF-IDF) improves measurably on the much
-smaller SBERT baseline, despite the LLM costing orders of magnitude more in
-per-item embedding latency. What both embedding-based pipelines clearly do
-is beat TF-IDF (best embedding, SBERT: 0.7258 vs. TF-IDF's 0.7055).
-
-**Robustness** (NDCG@10 under random vs. temporal split, LGBMRanker,
-3-seed mean):
-
-| Pipeline | Random | Temporal | Drop |
-|---|---|---|---|
-| TF-IDF | 0.7041 | 0.6290 | 0.0750 |
-| SBERT | 0.7250 | 0.6549 | 0.0701 |
-| Large Embedding Model | 0.7251 | 0.6566 | 0.0685 |
-| LLM (phi4-mini) | 0.7236 | 0.6566 | 0.0669 |
-| Hybrid | 0.7236 | 0.6574 | 0.0662 |
-
-TF-IDF is the *most* brittle to distribution shift — the practical gap
-between TF-IDF and the embedding pipelines widens, not stays constant, once
-the model has to generalize to future user behavior rather than interpolate
-a random split.
-
-**Failure analysis** (`results/failure_examples.csv`): the largest per-user
-regressions/gains for the LLM pipeline vs. TF-IDF are concentrated among
-users with very few (1–3) held-out positives, where per-user NDCG@10 is a
-coarse, high-variance statistic.
-
-## Results (Amazon Reviews, `All_Beauty` 5-core)
-
-**Main comparison** (LGBMRanker, 5-seed mean ± 95% CI):
-
-| Pipeline | NDCG@10 | Recall@10 | Embed latency (ms/item) |
-|---|---|---|---|
-| Baseline (TF-IDF) | 0.0972 ± 0.0030 | 0.1854 ± 0.0133 | 0.00 |
-| SBERT (all-MiniLM-L6-v2) | 0.0994 ± 0.0071 | 0.1899 ± 0.0175 | -- |
-| Large Embedding Model (mxbai-embed-large) | 0.0982 ± 0.0048 | 0.1908 ± 0.0138 | -- |
-| LLM (phi4-mini, local) | 0.1009 ± 0.0065 | 0.2009 ± 0.0143 | 6871.08 |
-| Hybrid (TF-IDF + phi4-mini) | 0.0979 ± 0.0043 | 0.1914 ± 0.0103 | 6871.08 |
-
-Unlike MovieLens, all five pipelines land within each other's confidence
-intervals — the classical-vs-embedding gap effectively disappears on this
-dataset's long, review-derived item text. Amazon Reviews' small scale (253
-users) means these CIs are wide relative to the pipeline differences
-observed, so this null result carries less weight on its own than Yelp's
-higher-precision one below.
-
-**Robustness** (NDCG@10 under random vs. temporal split, LGBMRanker,
-3-seed mean):
-
-| Pipeline | Random | Temporal | Drop |
-|---|---|---|---|
-| TF-IDF | 0.0959 | 0.0541 | 0.0418 |
-| SBERT | 0.0985 | 0.0527 | 0.0458 |
-| Large Embedding Model | 0.0967 | 0.0508 | 0.0459 |
-| LLM (phi4-mini) | 0.0985 | 0.0519 | 0.0466 |
-| Hybrid | 0.0950 | 0.0554 | 0.0397 |
-
-## Results (Yelp, Boise ID subset)
-
-**Main comparison** (LGBMRanker, 3-seed mean ± 95% CI — reduced from 5 seeds
-for local compute-time tractability; see `results/results_table_yelp.csv`):
-
-| Pipeline | NDCG@10 | Recall@10 | Embed latency (ms/item) |
-|---|---|---|---|
-| Baseline (TF-IDF) | 0.4656 ± 0.0040 | 0.7039 ± 0.0044 | 0.00 |
-| SBERT (all-MiniLM-L6-v2) | 0.4648 ± 0.0033 | 0.7037 ± 0.0032 | -- |
-| Large Embedding Model (mxbai-embed-large) | 0.4655 ± 0.0036 | 0.7042 ± 0.0038 | -- |
-| LLM (phi4-mini, local) | 0.4649 ± 0.0036 | 0.7032 ± 0.0033 | -- |
-| Hybrid (TF-IDF + phi4-mini) | 0.4649 ± 0.0029 | 0.7030 ± 0.0034 | -- |
-
-All embedding-pipeline latencies were already cached at measurement time in
-this main run; see `results/quality_cost.tex`-style analysis for a clean,
-uncached comparison methodology (run against MovieLens in this repo).
-
-With 10,537 qualifying users, this dataset has the tightest confidence
-intervals of the three — and still shows no separation between pipelines,
-the strongest evidence in this study that larger-capacity (and even
-small-embedding) augmentation isn't a reliable win on long, review-derived
-item text.
-
-**Robustness** (NDCG@10 under random vs. temporal split, LGBMRanker,
-2-seed mean, reduced from 3 for tractability):
-
-| Pipeline | Random | Temporal | Drop |
-|---|---|---|---|
-| TF-IDF | 0.4636 | 0.4457 | 0.0178 |
-| SBERT | 0.4631 | 0.4460 | 0.0171 |
-| Large Embedding Model | 0.4637 | 0.4476 | 0.0161 |
-| LLM (phi4-mini) | 0.4631 | 0.4465 | 0.0166 |
-| Hybrid | 0.4634 | 0.4463 | 0.0170 |
-
-**Cross-dataset takeaway:** the "larger-capacity embeddings ≈ small SBERT
-embeddings" half of the MovieLens finding replicates on both new datasets —
-larger-capacity embeddings never meaningfully beat SBERT anywhere. The
-"embeddings > TF-IDF" half does *not* replicate: on Amazon Reviews and Yelp,
-TF-IDF is statistically indistinguishable from every embedding pipeline. We
-trace this to corpus lexical redundancy (`src/redundancy_analysis.py`):
-MovieLens's titles are lexically distinctive (low TF-IDF cosine similarity
-across items), while Amazon and Yelp reviews reuse the same phrasing across
-unrelated items (high similarity) — the more redundant the text, the less
-there is for a denser representation to add over TF-IDF.
+| Popularity | 0.379 | 0.090 | 0.133 |
+| PureSVD | 0.572 | 0.151 | 0.151 |
+| TF-IDF | 0.576 | 0.170 | 0.179 |
+| SBERT (22M) | 0.589 | 0.175 | 0.192 |
+| mxbai (335M) | 0.583 | 0.178 | 0.195 |
+| phi4-mini raw (3.8B) | 0.486 | 0.160 | 0.194 |
+| Qwen3-Embedding (4B) | 0.587 | 0.185 | 0.198 |
+| Hybrid | 0.579 | 0.172 | 0.199 |
 
 ## Repo layout
 
@@ -228,9 +132,13 @@ src/
   embeddings.py                  — TF-IDF, SBERT, mxbai (Ollama), phi4-mini (llama.cpp) features, disk-cached (namespaced per dataset)
   metrics.py                       — per-user NDCG@K / Recall@K + aggregate stats
   pipeline.py                        — LGBMRanker + MLP scorers
-  run_experiment.py                    — main results: pipelines x scorers x seeds
-  run_robustness.py                     — random vs. temporal split comparison
-  failure_analysis.py                    — qualitative per-user regression/gain examples
+  user_features.py                     — leave-one-out user-item affinity + training-only popularity features
+  baselines.py                          — popularity and PureSVD reference baselines
+  run_experiment.py                    — pipelines x scorers x seeds for one configuration; per-user output
+  stats.py                              — paired t-test / Wilcoxon / TOST, Holm-corrected
+  make_tables.py                         — paper tables from results CSVs
+  representation_analysis.py             — embedding geometry, affinity-only ranking, centering, user-history check
+  latency_benchmark.py                   — like-for-like encoder latency benchmark
   generate_figures.py                     — figures
   quality_cost_analysis.py                 — clean, uncached quality-vs-latency benchmark + Pareto plot
   redundancy_analysis.py                    — corpus lexical redundancy vs. embedding benefit
@@ -240,8 +148,6 @@ results/                                     — output CSVs and LaTeX table sni
 
 ## Status
 
-**Complete: MovieLens, Amazon Reviews, and Yelp.** All three datasets have
-five pipelines, two scorers, stability (multi-seed), robustness (temporal
-shift), qualitative failure analysis, and cost/latency, including a
-dedicated quality-vs-cost benchmark and a corpus-redundancy diagnostic. No
-experimental work remains.
+Complete for MovieLens, Amazon Reviews, and Yelp: five feature/negative/split
+configurations, two scorers, five seeds, paired significance and equivalence
+tests, representation analyses, and a like-for-like latency benchmark.

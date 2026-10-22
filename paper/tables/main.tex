@@ -1,0 +1,17 @@
+\begin{tabular}{lcccc}
+\toprule
+ & \multicolumn{3}{c}{Popularity-matched negatives} & \\
+\cmidrule(lr){2-4}
+Pipeline & Item only & +Affinity & +Aff.+Pop. & Uniform neg. \\
+\midrule
+Popularity & 0.379$\pm$0.002 & 0.379$\pm$0.002 & 0.379$\pm$0.002 & 0.731$\pm$0.006 \\
+PureSVD & 0.572$\pm$0.008 & 0.572$\pm$0.008 & 0.572$\pm$0.008 & 0.757$\pm$0.005 \\
+\midrule
+TF-IDF & 0.383$\pm$0.004 & 0.573$\pm$0.007 & 0.576$\pm$0.008 & 0.784$\pm$0.005 \\
+SBERT (22M) & 0.380$\pm$0.003 & 0.590$\pm$0.007 & 0.589$\pm$0.008 & 0.785$\pm$0.005 \\
+mxbai (335M) & 0.379$\pm$0.004 & 0.586$\pm$0.005 & 0.583$\pm$0.005 & 0.785$\pm$0.005 \\
+phi4-mini raw (3.8B) & 0.379$\pm$0.005 & 0.486$\pm$0.006 & 0.486$\pm$0.006 & 0.747$\pm$0.006 \\
+Qwen3-Emb.\ (4B) & 0.378$\pm$0.004 & 0.593$\pm$0.007 & 0.587$\pm$0.005 & 0.785$\pm$0.005 \\
+Hybrid & 0.380$\pm$0.004 & 0.579$\pm$0.007 & 0.579$\pm$0.009 & 0.783$\pm$0.005 \\
+\bottomrule
+\end{tabular}

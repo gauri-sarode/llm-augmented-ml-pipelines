@@ -20,6 +20,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from src.candidates import POSITIVE_THRESHOLD
+
 DATA_DIR = Path(__file__).resolve().parent.parent / "data" / "yelp"
 TAR_PATH = DATA_DIR / "yelp_dataset.tar"
 DEFAULT_CITY = "Boise"
@@ -47,20 +49,28 @@ def _load_businesses(tf: tarfile.TarFile, city: str, state: str):
 
 
 def _load_reviews(tf: tarfile.TarFile, business_ids: set):
+    """All reviews for the city's businesses, as rating rows plus raw text."""
     f = tf.extractfile("yelp_academic_dataset_review.json")
-    rating_rows = []
-    review_snippets = {bid: [] for bid in business_ids}
+    rows = []
     for line in f:
         d = json.loads(line)
-        bid = d.get("business_id")
-        if bid not in business_ids:
+        if d.get("business_id") not in business_ids:
             continue
-        rating_rows.append((d["user_id"], bid, d["stars"], d.get("date", "")))
-        if len(review_snippets[bid]) < MAX_REVIEWS_PER_ITEM:
-            text = (d.get("text") or "").strip()[:MAX_CHARS_PER_REVIEW]
-            if text:
-                review_snippets[bid].append(text)
-    return rating_rows, review_snippets
+        text = (d.get("text") or "").strip()[:MAX_CHARS_PER_REVIEW]
+        rows.append((d["user_id"], d["business_id"], d["stars"], d.get("date", ""), text))
+    return pd.DataFrame(rows, columns=["userId", "movieId", "rating", "date", "text"])
+
+
+def _item_snippets(reviews: pd.DataFrame, min_positives: int = 2):
+    """Up to MAX_REVIEWS_PER_ITEM review texts per business, excluding every
+    review by an evaluable user (one with >= min_positives positive ratings,
+    matching build_user_candidates). Item text therefore never contains a
+    review whose rating is a held-out relevance label, under either split.
+    """
+    positives = reviews[reviews["rating"] >= POSITIVE_THRESHOLD].groupby("userId").size()
+    evaluable = set(positives[positives >= min_positives].index)
+    source = reviews[~reviews["userId"].isin(evaluable) & (reviews["text"] != "")]
+    return source.groupby("movieId")["text"].apply(lambda t: t.iloc[:MAX_REVIEWS_PER_ITEM].tolist())
 
 
 def load_yelp(
@@ -76,8 +86,9 @@ def load_yelp(
         movies: DataFrame[movieId, title, genres, text] where `text` is
             business name + categories + concatenated review text
     """
-    processed_ratings = data_dir / f"ratings_processed_{city}.csv"
-    processed_movies = data_dir / f"movies_processed_{city}.csv"
+    # "_v2": item text excludes evaluable users' reviews (earlier caches leaked them).
+    processed_ratings = data_dir / f"ratings_processed_{city}_v2.csv"
+    processed_movies = data_dir / f"movies_processed_{city}_v2.csv"
     if processed_ratings.exists() and processed_movies.exists():
         return pd.read_csv(processed_ratings), pd.read_csv(processed_movies)
 
@@ -91,10 +102,11 @@ def load_yelp(
     tf = tarfile.open(TAR_PATH)
     businesses = _load_businesses(tf, city, state)
     business_ids = set(businesses.keys())
-    rating_rows, review_snippets = _load_reviews(tf, business_ids)
+    reviews = _load_reviews(tf, business_ids)
     tf.close()
+    review_snippets = _item_snippets(reviews)
 
-    ratings = pd.DataFrame(rating_rows, columns=["userId", "movieId", "rating", "date"])
+    ratings = reviews[["userId", "movieId", "rating", "date"]].copy()
     ratings["timestamp"] = pd.to_datetime(ratings["date"]).astype("int64") // 10**9
     ratings = ratings[["userId", "movieId", "rating", "timestamp"]]
 

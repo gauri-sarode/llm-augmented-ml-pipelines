@@ -1,0 +1,67 @@
+\section{ML Pipeline Design}
+\label{sec:pipeline-design}
+
+All pipelines share candidate generation, splits, the scorer and its
+hyperparameters, and the feature construction of
+\S\ref{sec:problem-setup}. Only the encoder that produces
+$\mathbf{e}_i$ differs.
+
+\subsection{Encoders: a capacity ladder}
+\label{sec:baseline-pipelines}
+\label{sec:large-embedding-pipeline}
+\label{sec:llm-augmented-pipelines}
+\label{sec:hybrid-pipelines}
+We compare six item representations in increasing order of capacity and
+cost:
+\begin{itemize}
+  \item \textbf{TF-IDF}: a 2{,}000-term TF-IDF vector over the item
+    text, which is classical and involves no model inference.
+  \item \textbf{SBERT}: \texttt{all-MiniLM-L6-v2} \cite{sbert}, a
+    22M-parameter sentence encoder. It is the cheapest dense encoder
+    and the reference point for every cost comparison.
+  \item \textbf{mxbai}: \texttt{mxbai-embed-large}, a 335M-parameter
+    dedicated embedding encoder (BERT-style, not an LLM), served
+    through Ollama.
+  \item \textbf{phi4-mini (raw)}: the 3.8B-parameter decoder-only chat
+    LLM \texttt{phi4-mini}, used as an embedder by mean-pooling its
+    last-layer hidden states with no embedding-specific training
+    (\texttt{llama-server --pooling mean}). This is what a practitioner
+    gets by pointing an existing chat model at an embedding endpoint.
+  \item \textbf{Qwen3-Embedding-4B (trained)}: a 4B-parameter
+    decoder-only LLM \emph{contrastively trained for embedding}, served
+    with last-token pooling as its model card specifies. Its size and
+    quantization (Q4\_K\_M) match phi4-mini's, so comparing the two
+    separates the effect of LLM capacity from the effect of using
+    untrained hidden states as an embedding
+    \cite{sgpt, llm2vec, e5-mistral}.
+  \item \textbf{Hybrid}: TF-IDF concatenated with phi4-mini. The two
+    vectors each contribute their own affinity features.
+\end{itemize}
+SBERT and mxbai accept at most 256 and 512 input tokens respectively,
+while review-based item text runs longer. We therefore split long text
+into word chunks that fit each encoder (150 and 300 words), embed each
+chunk, and mean-pool the chunk vectors, so that every encoder sees the
+whole item text. Both LLMs run with a 4{,}096-token context, which
+covers every item without chunking. All models run locally on one Apple
+M4 machine (16\,GB), and all GGUF models use the same Q4\_K\_M
+quantization.
+
+\subsection{Reference baselines}
+Two baselines use no item text at all and give the absolute numbers a
+reference point. \textbf{Popularity} ranks candidates by $\log(1+n_i)$.
+\textbf{PureSVD} \cite{puresvd} factorizes the binarized training
+user--item matrix (rank 50, fixed in advance rather than tuned on test
+lists) and scores $(u,i)$ by the reconstructed entry. A content pipeline
+that cannot beat popularity is not using its item representation for
+personalization. A pipeline that cannot beat PureSVD gains nothing from
+text over a standard collaborative model.
+
+\subsection{Scorers}
+We use two scorers so that conclusions are not tied to one model's
+inductive biases. The first is LightGBM's \texttt{LGBMRanker}
+\cite{lightgbm} (lambdarank objective, grouped by user, 200 trees, 64
+leaves, learning rate 0.05). The second is a pointwise multi-layer
+perceptron (scikit-learn \texttt{MLPRegressor}, hidden layers 64 and 32,
+standardized inputs, early stopping) that regresses the graded
+relevance label. Hyperparameters are fixed across all pipelines and
+datasets.

@@ -1,0 +1,13 @@
+\begin{tabular}{lrrrrrr}
+\toprule
+$-$ SBERT & \multicolumn{2}{c}{MovieLens} & \multicolumn{2}{c}{Amazon} & \multicolumn{2}{c}{Yelp} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(lr){6-7}
+ & LGBM & MLP & LGBM & MLP & LGBM & MLP \\
+\midrule
+TF-IDF & -0.014$^{*}$ & -0.026$^{*}$ & -0.005 & -0.043$^{*}$ & -0.013$^{*}$ & -0.015$^{*}$ \\
+mxbai (335M) & -0.007 & -0.008 & +0.003 & -0.015 & +0.003$^{\equiv}$ & +0.010$^{*}$ \\
+phi4-mini raw (3.8B) & -0.104$^{*}$ & -0.135$^{*}$ & -0.015 & -0.101$^{*}$ & +0.002$^{\equiv}$ & -0.037$^{*}$ \\
+Qwen3-Emb.\ (4B) & -0.002 & -0.012 & +0.010 & -0.002 & +0.006$^{*}$ & +0.016$^{*}$ \\
+Hybrid & -0.010$^{*}$ & -0.023$^{*}$ & -0.003 & -0.066$^{*}$ & +0.007$^{*}$ & -0.020$^{*}$ \\
+\bottomrule
+\end{tabular}

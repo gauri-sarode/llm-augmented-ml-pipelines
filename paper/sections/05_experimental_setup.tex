@@ -1,0 +1,96 @@
+\section{Experimental Setup}
+\label{sec:experimental-setup}
+
+\subsection{Datasets}
+\label{sec:datasets}
+
+\textbf{MovieLens.} \texttt{ml-latest-small} \cite{movielens}: 100{,}836
+ratings (0.5--5.0 stars, timestamped) from 610 users on 9{,}724 movies.
+Item text is the title and genre tags (e.g.\ ``Toy Story (1995) Adventure
+Animation Children Comedy Fantasy''), which is short, curated metadata.
+
+\textbf{Amazon Reviews.} The \texttt{All\_Beauty} category of Amazon
+Reviews 2023 \cite{amazon-reviews-2023}, restricted to its standard
+5-core subset: 253 users, 356 items, and 2{,}535 ratings (1--5 stars).
+Each item's text is its product title, its category, and up to 10 of its
+reviews (title and body, each truncated to 500 characters).
+
+\textbf{Yelp.} Businesses in Boise, ID, from the Yelp Open Dataset, with
+at least 5 reviews: 2{,}937 businesses and 105{,}366 ratings (1--5
+stars). 10{,}537 users have at least two positives and are evaluated
+(median 3 positives). We chose a single mid-sized city to keep the
+LLM embedding pass tractable on one machine. Item text is the business
+name, its categories, and up to 10 reviews (500 characters each).
+
+\textbf{Leak-free review text.} Review text is strongly correlated with
+the star rating that defines relevance. If a held-out user's review were
+part of an item's text, the label would leak into the features. We
+therefore build item text only from reviews written by users who are
+\emph{never evaluated}: reviewers outside the 5-core user set on Amazon,
+and users with fewer than two positives on Yelp. No review whose rating
+is a test label, under either split, can enter any item's text. After
+this restriction the mean item text is 2{,}083 characters on Amazon and
+2{,}148 on Yelp. Items with no qualifying review (18 of 356 on Amazon,
+99 of 2{,}937 on Yelp) fall back to title and category.
+
+\textbf{Within-dataset redundancy variants.} To test the redundancy
+diagnostic (\S\ref{sec:redundancy-analysis}) without changing users, items, or
+labels, we also run MovieLens with title-only and genres-only item
+text.
+
+\subsection{Task and candidate generation}
+\label{sec:candidate-generation}
+A rating $\geq 4.0$ is a positive. For each user with at least two
+positives, we hold out 20\% of their positives (at least one) for test.
+Each training positive is paired with 4 sampled negatives, and each test
+list adds 50 sampled negatives drawn from items the user never rated.
+Relevance is the rating for positives and 0 for negatives.
+
+\textbf{Two negative-sampling regimes.} Sampled-negative metrics are
+most lenient when negatives are easy \cite{krichene-sampled}.
+Uniformly sampled unrated items are mostly obscure, so popularity alone
+separates them from positives. We therefore report two regimes:
+\emph{uniform} negatives, and \emph{popularity-matched} negatives drawn
+with probability proportional to each item's rating count, which
+removes most of the popularity shortcut. We treat popularity-matched
+negatives as the primary setting.
+
+\textbf{Splits.} The \emph{random} split shuffles each user's positives
+before holding out 20\%. The \emph{temporal} split holds out each
+user's most recent 20\%, so that the model must extrapolate to future
+preferences. Popularity features are computed from every rating except
+the held-out test positives. Under the temporal split they can
+therefore include other users' later ratings, which is a mild,
+pipeline-independent form of look-ahead that we note but do not remove.
+
+\subsection{Metrics and statistics}
+\label{sec:evaluation-metrics}
+For each user we compute NDCG@10 with gain $2^{r}-1$ \cite{ndcg} and
+Recall@10. Every configuration runs 5 seeds, and each seed redraws the
+split and the negatives. Tables report the mean over seeds of the
+per-user average, with a 95\% CI across seeds.
+
+\textbf{Paired tests.} All pipelines see identical users, splits, and
+candidate lists in each seed, so every comparison is paired. For each
+pipeline pair we average each user's NDCG@10 over seeds and test the
+per-user differences with (i) a paired $t$-test for any difference and
+(ii) TOST equivalence \cite{tost} against a margin of $\pm0.01$
+NDCG@10. The margin was fixed before the main experiments were run; it
+equals half of the largest encoder gap observed in pilot runs with the
+item-only scorer. Both families are Holm-corrected within each
+scorer and configuration. We call a pair \emph{different} if only the
+$t$-test rejects, \emph{equivalent} if only TOST rejects,
+\emph{negligible} if both reject (a detectable difference inside the
+margin), and \emph{inconclusive} if neither rejects.
+
+\textbf{Latency.} Embedding latency is measured in a separate
+benchmark, not inside the experiment runs. All four neural encoders
+embed the same 256-item sample, with full-text coverage (chunking where
+needed), at batch sizes 1 and 32, on the same machine with nothing else
+running. Each model gets one warmup call, and three rounds rotate the
+model order. We report the median per-item latency over rounds.
+SBERT runs on the Metal (MPS) backend, mxbai through Ollama, and the
+two GGUF models through llama.cpp servers with four parallel slots,
+so a batch request is spread across slots. Every
+pipeline runs locally, so the marginal API cost is \$0 and latency is
+the cost signal.

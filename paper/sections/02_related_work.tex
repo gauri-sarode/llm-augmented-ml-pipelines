@@ -1,0 +1,54 @@
+\section{Related Work}
+\label{sec:related-work}
+
+\textbf{Text and LLM representations in recommendation.} Surveys
+distinguish LLMs used directly as recommenders from LLMs that supply
+embeddings or generated features to a conventional model
+\cite{llm4rec-survey}; we study the latter. Text-based item
+representations from pretrained encoders have been used to make
+sequential recommenders transferable across domains (UniSRec
+\cite{unisrec}, Recformer \cite{recformer}), and Yuan et
+al.~\cite{yuan-id-vs-modality} show that modality-based item encoders
+can match ID-based ones when the encoder is trained end-to-end. Harte et
+al.~\cite{harte-llmseqrec} report gains from initializing sequential
+recommenders with LLM embeddings, and BLaIR \cite{amazon-reviews-2023}
+pretrains sentence encoders on Amazon review text specifically to
+connect language and items. These works change the recommender
+architecture, fine-tune the encoder, or both. We ask a narrower,
+deployment-side question that they leave open: holding a standard
+feature-based ranker fixed and using \emph{frozen, off-the-shelf}
+encoders, does moving up the capacity ladder (classical
+$\rightarrow$ small encoder $\rightarrow$ large encoder $\rightarrow$
+LLM) pay for its cost?
+
+\textbf{Decoder LLMs as embedders.} Raw hidden states of decoder-only
+LLMs are a weak embedding without adaptation: SGPT \cite{sgpt},
+LLM2Vec \cite{llm2vec}, and E5-Mistral \cite{e5-mistral} all add
+contrastive training (and, for LLM2Vec, bidirectional attention) to
+reach state-of-the-art results on MTEB \cite{mteb}. Our phi4-mini arm
+deliberately uses the training-free variant, which is what a
+practitioner gets by pointing an existing chat model at an embedding
+endpoint; we therefore read its results as a statement about that
+practice, not about the ceiling of LLM-derived embeddings
+(\S\ref{sec:discussion}).
+
+\textbf{Baselines and evaluation rigor in recommendation.} Several
+reproducibility studies found that reported neural gains often vanish
+against properly tuned simple baselines such as item-kNN or matrix
+factorization \cite{dacrema-progress, rendle-ncf-mf}, and that results
+are sensitive to splitting, sampling, and tuning choices that papers
+rarely control \cite{sun-rigorous}. Krichene and Rendle
+\cite{krichene-sampled} show that metrics computed over sampled
+negatives can be inconsistent with full-ranking metrics and are most
+lenient when negatives are easy. We respond to these findings directly:
+we include popularity and PureSVD \cite{puresvd} reference baselines,
+evaluate under both uniform and popularity-matched negatives, and base
+every ``no difference'' claim on paired equivalence tests (TOST
+\cite{tost}) with a pre-stated margin rather than on overlapping
+confidence intervals.
+
+\textbf{Gradient-boosted rankers.} LightGBM \cite{lightgbm} represents
+the gradient-boosted tree family widely used as the final scorer in
+production ranking stacks; it consumes dense item embeddings and
+handcrafted user--item features side by side, which is exactly the
+integration point at which a practitioner would add an LLM component.

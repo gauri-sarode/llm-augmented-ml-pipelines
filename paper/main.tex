@@ -1,0 +1,81 @@
+\documentclass[conference]{IEEEtran}
+\IEEEoverridecommandlockouts
+
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{hyperref}
+
+% \anontrue hides authors and uses the anonymized code link. IEEE ICSC 2027
+% does not state its review model, so we submit anonymized; switch to
+% \anonfalse for the camera-ready version after acceptance.
+\newif\ifanon
+\anontrue
+
+\begin{document}
+
+\title{Evaluating LLM-Augmented ML Pipelines: Performance, Stability, and Cost}
+
+\ifanon
+\author{\IEEEauthorblockN{Anonymous Author(s)}}
+\else
+% TODO(authors): replace with the real author list and affiliations.
+\author{
+  \IEEEauthorblockN{AUTHOR NAMES}
+  \IEEEauthorblockA{AFFILIATION \\ City, Country \\ EMAIL}
+}
+\fi
+
+\maketitle
+
+\begin{abstract}
+Large language models are increasingly used as item encoders inside
+existing ranking pipelines, often on the assumption that a bigger
+encoder gives better features. We test that assumption under controlled
+conditions. Six frozen encoders feed the same personalized
+learning-to-rank pipeline: TF-IDF, a 22M-parameter sentence encoder, a
+335M-parameter embedding encoder, a 3.8B chat LLM used through its
+mean-pooled hidden states, and a 4B LLM trained for embedding, plus a
+hybrid. We evaluate them on MovieLens, Amazon Reviews, and Yelp (up to
+10{,}537 users) with popularity and matrix-factorization baselines,
+uniform and popularity-matched negatives, random and temporal splits,
+two scorers, paired per-user significance and equivalence tests, and a
+like-for-like latency benchmark. Three findings emerge. First,
+evaluation design can erase the question: a scorer that sees only item
+features reduces to a popularity model, and easy negatives let
+popularity match every encoder. Second, with a personalized scorer and
+hard negatives, moving from TF-IDF to the small sentence encoder is the
+most consistent gain, significant on all three datasets (on Amazon only
+under one of the two scorers).
+Above it, gains are small and need a large sample to detect: on Yelp
+the 4B embedding model adds 0.006--0.016 NDCG@10 at roughly
+45--70$\times$ the per-item latency, and on MovieLens and Amazon no gain
+is detectable. Third, a chat LLM's raw hidden states are unreliable.
+They are nearly parallel on every dataset, significantly worse than
+TF-IDF on short metadata, and competitive on long reviews only under a
+tree-based ranker. An LLM of the same size trained for embedding has no
+such failure. We turn these results into a cost-aware checklist for
+adding LLM components to ranking pipelines.
+\end{abstract}
+
+\begin{IEEEkeywords}
+large language models, recommender systems, learning to rank, embeddings, quality-cost tradeoff, empirical evaluation
+\end{IEEEkeywords}
+
+\input{sections/01_introduction}
+\input{sections/02_related_work}
+\input{sections/03_problem_setup}
+\input{sections/04_pipeline_design}
+\input{sections/05_experimental_setup}
+\input{sections/06_results}
+\input{sections/07_failure_analysis}
+\input{sections/08_practical_guidelines}
+\input{sections/09_discussion}
+\input{sections/10_conclusion}
+\input{sections/11_ai_disclosure}
+
+\bibliographystyle{IEEEtran}
+\bibliography{references}
+
+\end{document}

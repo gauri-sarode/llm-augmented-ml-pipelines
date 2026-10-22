@@ -28,8 +28,17 @@ def _ensure_downloaded(data_dir: Path = DATA_DIR) -> Path:
     return extracted_dir
 
 
-def load_movielens(data_dir: Path = DATA_DIR):
-    """Load ratings and movies, and build an item text corpus (title + genres).
+ITEM_TEXT_VARIANTS = ("title_genres", "title", "genres")
+
+
+def load_movielens(data_dir: Path = DATA_DIR, item_text: str = "title_genres"):
+    """Load ratings and movies, and build an item text corpus.
+
+    `item_text` selects the text construction ("title_genres" is the main
+    setting). The "title" and "genres" variants hold users, items, and labels
+    fixed while moving corpus redundancy (genres-only text draws from ~20
+    tokens, so items are highly redundant), giving a within-dataset test of
+    the redundancy diagnostic.
 
     Returns:
         ratings: DataFrame[userId, movieId, rating, timestamp]
@@ -43,7 +52,13 @@ def load_movielens(data_dir: Path = DATA_DIR):
 
     movies = movies.copy()
     movies["genres_text"] = movies["genres"].str.replace("|", " ", regex=False)
-    movies["text"] = movies["title"] + " " + movies["genres_text"]
+    if item_text not in ITEM_TEXT_VARIANTS:
+        raise ValueError(f"Unknown item_text {item_text!r}; choose from {ITEM_TEXT_VARIANTS}")
+    movies["text"] = {
+        "title_genres": movies["title"] + " " + movies["genres_text"],
+        "title": movies["title"],
+        "genres": movies["genres_text"],
+    }[item_text]
 
     # Keep only movies that actually have ratings, so candidate items always
     # have at least some interaction signal in the dataset.

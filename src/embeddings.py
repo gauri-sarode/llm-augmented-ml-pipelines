@@ -18,6 +18,32 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 
 CACHE_DIR = Path(__file__).resolve().parent.parent / "data" / "cache"
 
+# Word-count chunk sizes that keep each chunk inside the encoder's input
+# limit (all-MiniLM-L6-v2: 256 word pieces; mxbai-embed-large: 512 tokens),
+# with headroom for subword splitting. Long review text is embedded chunk by
+# chunk and mean-pooled, so every model sees the whole item text rather than
+# a model-dependent prefix. MovieLens titles fit in one chunk (no-op).
+SBERT_CHUNK_WORDS = 150
+MXBAI_CHUNK_WORDS = 300
+
+
+def chunk_words(text, max_words):
+    """Split text into consecutive chunks of at most max_words words (>= 1 chunk)."""
+    words = str(text).split()
+    return [" ".join(words[i : i + max_words]) for i in range(0, len(words), max_words)] or [""]
+
+
+def _mean_pool_chunks(texts, max_words, encode_batch):
+    """Embed each text as the mean of its chunks' embeddings."""
+    chunks, owner = [], []
+    for k, text in enumerate(texts):
+        for c in chunk_words(text, max_words):
+            chunks.append(c)
+            owner.append(k)
+    vectors = np.asarray(encode_batch(chunks), dtype=np.float32)
+    owner = np.asarray(owner)
+    return [vectors[owner == k].mean(axis=0) for k in range(len(texts))]
+
 
 def _cache_paths(name):
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -67,7 +93,9 @@ def build_sbert_features(
         model = SentenceTransformer(model_name)
         texts = movies.set_index("movieId").loc[missing, "text"].tolist()
         start = time.time()
-        vectors = model.encode(texts, show_progress_bar=False)
+        vectors = _mean_pool_chunks(
+            texts, SBERT_CHUNK_WORDS, lambda c: model.encode(c, show_progress_bar=False)
+        )
         avg_latency = (time.time() - start) / len(missing)
         for mid, vec in zip(missing, vectors):
             cached[mid] = np.asarray(vec, dtype=np.float32)
@@ -101,9 +129,14 @@ def build_large_embedding_model_features(
         latencies = []
         for mid in missing:
             start = time.time()
-            response = ollama.embed(model=model_name, input=texts_by_id[mid])
+            # One request per item (all its chunks), mean-pooled.
+            (vec,) = _mean_pool_chunks(
+                [texts_by_id[mid]],
+                MXBAI_CHUNK_WORDS,
+                lambda c: ollama.embed(model=model_name, input=c)["embeddings"],
+            )
             latencies.append(time.time() - start)
-            cached[mid] = np.asarray(response["embeddings"][0], dtype=np.float32)
+            cached[mid] = vec
         avg_latency = float(np.mean(latencies))
         if use_cache:
             _save_cache(cache_name, cached)
@@ -192,6 +225,55 @@ def build_true_llm_features(
             # not from scratch) depend on this.
             if (i + 1) % 50 == 0:
                 print(f"  ...{i + 1}/{len(missing)} phi4-mini embeddings done")
+            if use_cache and (i + 1) % 200 == 0:
+                _save_cache(cache_name, cached)
+        avg_latency = float(np.mean(latencies))
+        if use_cache:
+            _save_cache(cache_name, cached)
+
+    return {mid: cached[mid] for mid in movies["movieId"]}, avg_latency
+
+
+def build_trained_llm_embedder_features(
+    movies: pd.DataFrame,
+    model_name="Qwen3-Embedding-4B",
+    server_url="http://127.0.0.1:11601",
+    use_cache=True,
+    cache_prefix="",
+):
+    """Embeddings from a decoder LLM *trained* for embedding (Qwen3-Embedding-4B,
+    4B parameters, contrastively fine-tuned), cached per movieId.
+
+    The controlled counterpart to build_true_llm_features: a decoder-only LLM
+    at nearly the same scale as phi4-mini (3.8B), but with embedding-specific
+    training -- so comparing the two separates "LLM capacity" from "raw
+    mean-pooled hidden states are a weak embedding". Same GGUF quantization
+    (Q4_K_M) as Ollama's phi4-mini. Documents take no instruction prefix
+    (Qwen3-Embedding only prefixes queries). Start a second llama-server with
+    last-token pooling, as the model card specifies:
+
+        llama-server -m data/models/Qwen3-Embedding-4B-Q4_K_M.gguf \
+            --embeddings --pooling last --port 11601 --host 127.0.0.1 \
+            -c 4096 -np 1 -ub 1536 -b 1536
+    """
+    cache_name = f"{cache_prefix}trainedllm_{model_name}"
+    cached = _load_cache(cache_name) if use_cache else {}
+    missing = [mid for mid in movies["movieId"] if mid not in cached]
+
+    avg_latency = 0.0
+    if missing:
+        texts_by_id = movies.set_index("movieId")["text"]
+        latencies = []
+        for i, mid in enumerate(missing):
+            start = time.time()
+            response = requests.post(
+                f"{server_url}/v1/embeddings", json={"input": texts_by_id[mid]}, timeout=120
+            )
+            response.raise_for_status()
+            latencies.append(time.time() - start)
+            cached[mid] = np.asarray(response.json()["data"][0]["embedding"], dtype=np.float32)
+            if (i + 1) % 50 == 0:
+                print(f"  ...{i + 1}/{len(missing)} {model_name} embeddings done", flush=True)
             if use_cache and (i + 1) % 200 == 0:
                 _save_cache(cache_name, cached)
         avg_latency = float(np.mean(latencies))

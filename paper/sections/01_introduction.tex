@@ -1,0 +1,79 @@
+\section{Introduction}
+\label{sec:introduction}
+
+Large language models (LLMs) are being incorporated into machine learning
+systems at a rapid pace: as embedding providers for retrieval and ranking,
+as feature-enrichment components that turn raw text into structured
+signals, and increasingly as reasoning components sitting directly in a
+production decision pipeline \cite{llm4rec-survey}. Recommender-systems
+research has a documented history of gains that shrink or vanish under
+controlled comparison: reproducibility studies found that many reported
+neural improvements did not survive against properly tuned simple
+baselines \cite{dacrema-progress, rendle-ncf-mf}, that conclusions shift
+with splitting, sampling, and tuning choices \cite{sun-rigorous}, and that
+sampled-negative metrics can mis-rank methods \cite{krichene-sampled}.
+Cost is rarely part of the comparison at all. LLM components inherit
+all of these risks and add a new one: a per-item inference cost tens of
+times that of the component they replace.
+
+In practice, the behavior of LLM-augmented pipelines is far less
+consistent than the enthusiasm around them would suggest. The same
+architecture that provides a clear win on one dataset can be a wash, or
+even a regression, on another. Practitioners deciding whether to add an
+LLM component to an existing ML pipeline need more than a single
+accuracy number: they need to know whether the gain is stable across
+random seeds and data splits, whether it survives distribution shift, and
+whether it is worth the additional latency and cost relative to a much
+cheaper classical or small-model baseline.
+
+This paper studies LLMs as \emph{components inside} ML pipelines rather
+than as end-to-end systems, and asks a narrower, more actionable question
+than ``do LLMs help'': \emph{when} do they help, by how much, how
+reliably, and at what cost, relative to the alternatives a practitioner
+would otherwise reach for.
+
+\subsection{Contributions}
+\begin{itemize}
+  \item A controlled comparison of six frozen item encoders spanning
+    classical TF-IDF, a 22M-parameter sentence encoder, a 335M-parameter
+    embedding encoder, a 3.8B chat LLM used through its raw hidden
+    states, and a 4B LLM trained for embedding. All of them feed the
+    same personalized learning-to-rank pipeline, under two scorers, two
+    negative-sampling regimes, a random and a temporal split, and
+    popularity and matrix-factorization reference baselines
+    (\S\ref{sec:pipeline-design}--\S\ref{sec:results}).
+  \item Paired per-user significance and equivalence tests with a
+    pre-stated margin, so that ``no gain'' claims are distinguished from
+    ``no evidence'' (\S\ref{sec:evaluation-metrics}).
+  \item Three findings, replicated across three datasets. (i) A scorer
+    that sees only item features reduces to a popularity model, under
+    which every encoder looks alike. (ii) Once ranking is personalized,
+    the step from TF-IDF to a small dense encoder is the most
+    consistent gain. Larger encoders add a small gain only on long
+    review text with $\sim$10K users, at tens of times the cost
+    (\S\ref{sec:results}). (iii) A chat LLM's raw hidden states can be
+    significantly \emph{worse} than TF-IDF, depending on text length
+    and scorer, while an LLM of the same size trained for embedding is
+    reliable (\S\ref{sec:failure-analysis}). Within one dataset, the
+    advantage of dense over lexical encoders also tracks text redundancy
+    (\S\ref{sec:redundancy-analysis}).
+  \item A like-for-like latency benchmark, with the same batching, inputs,
+    and hardware for every encoder, and a cost-aware checklist for
+    practitioners (\S\ref{sec:quality-cost},
+    \S\ref{sec:practical-guidelines}).
+\end{itemize}
+
+\textbf{A cautionary note on evaluation design.} Our first finding is
+methodological: feeding item embeddings to a ranker that sees nothing
+about the user makes every encoder look alike, and sampling easy
+negatives hides the gap between lexical and dense encoders. Either one
+alone would have led us to a wrong conclusion
+(\S\ref{sec:movielens-results}).
+
+\textbf{Reproducibility.} Code, experiment scripts, per-user results,
+and the scripts that generate every table are available at
+\ifanon
+\url{https://anonymous.4open.science/r/llm-augmented-ml-pipelines-FC52/}.
+\else
+\url{CAMERA-READY-CODE-LINK}.
+\fi

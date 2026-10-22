@@ -75,14 +75,15 @@ def evaluate_ranking(test_df: pd.DataFrame, scores, k: int = 10):
     df = test_df.copy()
     df["score"] = np.asarray(scores, dtype=float)
 
-    ndcgs, recalls = [], []
-    for _, group in df.groupby("userId", sort=False):
+    users, ndcgs, recalls = [], [], []
+    for user_id, group in df.groupby("userId", sort=False):
+        users.append(user_id)
         s, r = group["score"].to_numpy(), group["relevance"].to_numpy()
         ndcgs.append(ndcg_at_k(s, r, k))
         recalls.append(recall_at_k(s, r, k))
 
     ndcgs, recalls = np.array(ndcgs), np.array(recalls)
-    result = {"ndcg_per_user": ndcgs, "recall_per_user": recalls}
+    result = {"users": np.array(users), "ndcg_per_user": ndcgs, "recall_per_user": recalls}
     for stat, v in aggregate(ndcgs).items():
         result[f"ndcg@{k}_{stat}"] = v
     for stat, v in aggregate(recalls).items():

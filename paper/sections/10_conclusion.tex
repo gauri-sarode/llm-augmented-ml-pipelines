@@ -1,0 +1,25 @@
+\section{Conclusion}
+\label{sec:conclusion}
+
+We asked when spending more model capacity on item text pays off inside
+a learning-to-rank pipeline. We compared six frozen encoders, from
+TF-IDF to a 4B LLM trained for embedding, on three datasets under a
+personalized scorer, hard and easy negatives, random and temporal
+splits, two scorers, paired equivalence testing, and a like-for-like
+latency benchmark.
+
+Three conclusions follow. First, evaluation design can erase the
+question: a scorer blind to the user collapses to popularity, and easy
+negatives let popularity match every encoder. Second, once those are
+fixed, the cheapest dense encoder captures the most consistent gain.
+Larger encoders add little: nothing detectable on MovieLens or Amazon,
+and 0.006--0.016 NDCG@10 on Yelp at roughly 45--70$\times$ the per-item
+latency. Third, a chat LLM's raw hidden states are not a safe embedding.
+They can fall below TF-IDF, depending on text length and scorer, a
+failure that an LLM of the same size trained for embedding does not
+share.
+
+\textbf{Future work.} Online evaluation through interleaving,
+replication in domains with long user histories, and fine-tuning the
+small encoder on in-domain interactions, which may close the remaining
+gap at a fraction of the cost.

@@ -15,6 +15,7 @@ def build_user_candidates(
     num_negatives_test: int = 50,
     min_positives: int = 2,
     split_method: str = "random",
+    negative_sampling: str = "uniform",
 ):
     """Build per-user train/test candidate sets with graded relevance labels.
 
@@ -28,6 +29,11 @@ def build_user_candidates(
             holds out the user's most recent interactions for test — used for
             the distribution-shift robustness analysis. Negative sampling is
             seeded/random either way.
+        negative_sampling: "uniform" (default) samples unrated items uniformly.
+            "popularity" samples them with probability proportional to their
+            rating count, so negatives are about as popular as typical
+            positives -- harder to reject on popularity alone, which matters
+            once a popularity baseline is in the comparison.
 
     Returns:
         train_df, test_df: DataFrame[userId, movieId, relevance] where
@@ -37,9 +43,12 @@ def build_user_candidates(
     """
     if split_method not in ("random", "temporal"):
         raise ValueError(f"Unknown split_method: {split_method}")
+    if negative_sampling not in ("uniform", "popularity"):
+        raise ValueError(f"Unknown negative_sampling: {negative_sampling}")
 
     rng = np.random.default_rng(seed)
     all_movie_ids = movies["movieId"].to_numpy()
+    item_counts = ratings["movieId"].value_counts()
 
     positives = ratings[ratings["rating"] >= POSITIVE_THRESHOLD]
     train_rows = []
@@ -77,7 +86,11 @@ def build_user_candidates(
 
         def sample_negatives(n):
             n = min(n, len(candidate_pool))
-            return rng.choice(candidate_pool, size=n, replace=False)
+            if negative_sampling == "uniform":
+                return rng.choice(candidate_pool, size=n, replace=False)
+            weights = item_counts.reindex(candidate_pool).fillna(0).to_numpy(dtype=float)
+            n = min(n, int((weights > 0).sum()))
+            return rng.choice(candidate_pool, size=n, replace=False, p=weights / weights.sum())
 
         train_neg_ids = sample_negatives(num_negatives_train * max(1, len(train_pos_ids)))
         test_neg_ids = sample_negatives(num_negatives_test)

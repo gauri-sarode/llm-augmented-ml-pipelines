@@ -51,14 +51,22 @@ def _ensure_raw_files(category: str, data_dir: Path):
     return ratings_path, reviews_path, meta_path
 
 
-def _build_item_text(reviews_path: Path, item_ids: set):
-    """Concatenate up to MAX_REVIEWS_PER_ITEM review title+text per item."""
+def _build_item_text(reviews_path: Path, item_ids: set, excluded_users: set):
+    """Concatenate up to MAX_REVIEWS_PER_ITEM review title+text per item.
+
+    Reviews written by any user in `excluded_users` (every user who is
+    evaluated) are skipped, so an item's text never contains a review whose
+    star rating is a held-out relevance label -- under either the random or
+    the temporal split.
+    """
     snippets = {mid: [] for mid in item_ids}
     with open(reviews_path) as f:
         for line in f:
             d = json.loads(line)
             pid = d.get("parent_asin")
             if pid not in snippets or len(snippets[pid]) >= MAX_REVIEWS_PER_ITEM:
+                continue
+            if d.get("user_id") in excluded_users:
                 continue
             title = (d.get("title") or "").strip()
             body = (d.get("text") or "").strip()
@@ -92,8 +100,9 @@ def load_amazon(category: str = DEFAULT_CATEGORY, data_dir: Path = DATA_DIR):
         movies: DataFrame[movieId, title, genres, text] where `text` is
             product title + category + concatenated review text
     """
-    processed_ratings = data_dir / f"ratings_processed_{category}.csv"
-    processed_movies = data_dir / f"movies_processed_{category}.csv"
+    # "_v2": item text excludes evaluated users' reviews (earlier caches leaked them).
+    processed_ratings = data_dir / f"ratings_processed_{category}_v2.csv"
+    processed_movies = data_dir / f"movies_processed_{category}_v2.csv"
     if processed_ratings.exists() and processed_movies.exists():
         return pd.read_csv(processed_ratings), pd.read_csv(processed_movies)
 
@@ -105,7 +114,9 @@ def load_amazon(category: str = DEFAULT_CATEGORY, data_dir: Path = DATA_DIR):
     )[["userId", "movieId", "rating", "timestamp"]]
 
     item_ids = set(ratings["movieId"].unique())
-    review_text = _build_item_text(reviews_path, item_ids)
+    # The 5-core users are exactly the evaluated users; item text comes only
+    # from reviewers outside that set.
+    review_text = _build_item_text(reviews_path, item_ids, set(ratings["userId"].unique()))
     titles, categories = _build_item_meta(meta_path, item_ids)
 
     rows = []

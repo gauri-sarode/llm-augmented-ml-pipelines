@@ -1,0 +1,46 @@
+\section{Problem Setup}
+\label{sec:problem-setup}
+
+We study pipelines of the general form
+\[
+\text{item text} \xrightarrow{\;\text{encoder}\;} \text{item vector}
+\;\rightarrow\; \text{user--item features} \;\rightarrow\; \text{scorer}
+\;\rightarrow\; \text{ranked list},
+\]
+in which a frozen text encoder turns each item's text into a vector, the
+vector feeds a set of user--item features, and a learned scorer ranks
+each user's candidate items. This is the integration point at which a
+practitioner typically adds an LLM: the scorer, the candidate lists, and
+the training data stay as they are, and only the encoder changes. Holding
+everything except the encoder fixed lets us attribute differences in
+ranking quality to the item representation alone.
+
+\textbf{What the scorer sees.} For a user $u$ and candidate item $i$ with
+encoder vector $\mathbf{e}_i$, the scorer receives
+\begin{enumerate}
+  \item the item vector $\mathbf{e}_i$ itself;
+  \item two \emph{affinity} features: the mean and the maximum cosine
+    similarity between $\mathbf{e}_i$ and the vectors of $u$'s training
+    positives $P_u$. When $i \in P_u$ (a training row), $i$ is removed
+    from $P_u$ before computing these features (leave-one-out), so the
+    scorer never trains on a self-similarity it could not see at test
+    time;
+  \item two \emph{popularity} features computed from training
+    interactions only: $\log(1+n_i)$, where $n_i$ is the number of
+    training ratings of $i$, and $i$'s mean training rating.
+\end{enumerate}
+The affinity features are where representation quality can matter per
+user: they are computed in each encoder's own embedding space. The
+popularity features are identical across encoders and so shift every
+pipeline equally. We also report two ablations: the scorer without the
+popularity features, and the scorer with the item vector alone. The
+latter is a common shortcut when embeddings are dropped into an
+existing ranker, and in it the scorer can only learn a single global
+score per item
+(\S\ref{sec:results}).
+
+\textbf{Scope.} We study one form of LLM augmentation, namely item
+embeddings from a frozen encoder. We do not study LLM-generated features
+or LLMs used as end-to-end recommenders. All datasets are public
+benchmarks standing in for production traffic, so absolute numbers
+should be read as comparisons between pipelines on a fixed dataset.

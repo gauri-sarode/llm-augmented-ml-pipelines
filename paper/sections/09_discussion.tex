@@ -1,0 +1,55 @@
+\section{Discussion}
+\label{sec:discussion}
+
+\subsection{What the results say about capacity}
+Treating ``add an LLM'' as a hypothesis, not a default upgrade, holds up
+under a stricter evaluation, but for different reasons than a naive
+comparison would suggest. Most of the value of a text encoder in a
+personalized ranker comes from having \emph{some} dense, well-spread
+representation in which a user's history can be compared to a
+candidate. A 22M-parameter encoder already provides most of it.
+Additional capacity paid off only on long review text, by a few
+thousandths to a hundredth of NDCG@10, and only from an encoder trained
+to embed. Raw LLM hidden states are a poor substitute: their
+near-parallel geometry makes profile similarity fragile, uninformative
+on short text and unusable by a scorer that standardizes its inputs.
+
+These results complement rather than contradict work that reports gains
+from language-model item representations
+\cite{unisrec, recformer, yuan-id-vs-modality, harte-llmseqrec,
+amazon-reviews-2023}. Those methods train or fine-tune the encoder
+jointly with the recommender, or pretrain it on in-domain interaction
+data. Our encoders are frozen and generic, which is the cheaper and
+more common deployment path, and the one for which our checklist is
+written.
+
+\subsection{Limitations}
+\label{sec:limitations}
+\textbf{Scale and datasets.} Amazon's 249 evaluated users are too few
+to resolve most pairwise differences, and MovieLens's 610 cannot
+establish equivalence among SBERT, mxbai, and Qwen3 at $\pm0.01$. Only
+Yelp has the power to detect gains below 0.01, so the gain above SBERT
+rests on one dataset, from one city, with short user histories (median
+3 positives). It may be larger or smaller in domains with longer
+histories.
+
+\textbf{Models.} Each rung of the ladder is one model: one small
+encoder, one large encoder, one raw chat LLM, and one trained LLM
+embedder, all run locally and quantized. We do not evaluate hosted
+embedding APIs, other model families or sizes, or fine-tuning any
+encoder on the target domain.
+
+\textbf{Evaluation protocol.} Metrics are computed over sampled
+candidate lists, not full-catalog ranking. Popularity-matched negatives
+reduce, but do not remove, the leniency of sampled metrics
+\cite{krichene-sampled}. Scorer hyperparameters are fixed across
+pipelines rather than tuned per pipeline. This keeps the comparison
+controlled but could disadvantage representations that need different
+settings. Under the temporal split, popularity features can include
+other users' later ratings (\S\ref{sec:candidate-generation}).
+
+\textbf{Analyses.} The redundancy manipulation changes information
+content along with redundancy, and it does not transfer across datasets
+(\S\ref{sec:redundancy-analysis}). Our account of why the MLP fails
+with raw phi4-mini is consistent with the data but untested
+(\S\ref{sec:failure-analysis}).

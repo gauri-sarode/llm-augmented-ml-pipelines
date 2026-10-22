@@ -1,0 +1,226 @@
+\section{Results}
+\label{sec:results}
+
+\begin{table*}[t]
+\centering
+\caption{MovieLens NDCG@10 (LGBMRanker, mean $\pm$ 95\% CI over 5 seeds).
+Columns add scorer features left to right under popularity-matched
+negatives; the last column uses uniform negatives. Popularity and PureSVD
+use no item text.}
+\label{tab:main-results}
+\input{tables/main}
+\end{table*}
+
+\subsection{An item-only scorer is a popularity model}
+\label{sec:movielens-results}
+The ``Item only'' column of Table~\ref{tab:main-results} is the common
+shortcut of feeding item embeddings straight into a ranker: the scorer
+sees item vectors and nothing about the user. Under popularity-matched
+negatives every encoder lands within 0.004 NDCG@10 of plain popularity
+(0.378--0.383 vs.\ 0.379), and all are 0.19 below PureSVD. A scorer with no user
+input can only learn one global score per item, so it ranks every
+user's candidates identically and the item representation is reduced to
+a predictor of popularity. This explains why every encoder looked alike
+in that setting, and a study run only in this configuration would
+conclude, wrongly, that encoder choice does not matter. On Amazon and
+Yelp the item-only scorer falls \emph{below} popularity
+(Table~\ref{tab:amazon-results}). Once the scorer receives the user--item affinity
+features (``+Affinity''), TF-IDF, SBERT, mxbai, and Qwen3 gain 0.19--0.22
+(phi4-mini only 0.11), and the encoders separate. Adding the popularity features changes no pipeline
+by more than 0.006. Under uniform negatives, popularity alone already
+reaches 0.731 on MovieLens, and on Yelp it ties TF-IDF (0.465) with every
+encoder within 0.007 of it. This shows how much of an easy-negative
+evaluation a non-personalized model can absorb \cite{krichene-sampled}.
+
+\subsection{The capacity ladder on MovieLens}
+\label{sec:cross-dataset-synthesis}
+\begin{table}[t]
+\centering
+\caption{Paired per-user tests against SBERT, all datasets and scorers
+(personalized scorer, popularity-matched negatives, 5 seeds). Cells are
+NDCG@10 of the pipeline minus SBERT. $^{*}$: Holm-corrected $p<0.05$;
+$^{\equiv}$: TOST-equivalent within $\pm0.01$; unmarked: inconclusive.}
+\label{tab:scorer-comparison}
+\resizebox{\columnwidth}{!}{\input{tables/paired_all}}
+\end{table}
+
+Table~\ref{tab:scorer-comparison} reads the personalized,
+popularity-matched configuration as a ladder of capacity steps. On
+MovieLens (first two columns), moving
+from TF-IDF to SBERT (22M parameters) is a significant gain
+($+0.014$, $p<0.001$). It is the one step that pays: TF-IDF only ties
+PureSVD, while SBERT beats it ($+0.017$, $p=0.011$). No step above SBERT
+produces a detectable gain. mxbai (15$\times$ larger) and
+Qwen3-Embedding-4B (180$\times$ larger) land within 0.007 of SBERT in
+point estimate with CIs straddling zero. With 610 users, however, TOST
+cannot establish equivalence at $\pm0.01$ either. We therefore claim
+\emph{no detectable gain} above SBERT, not equivalence.
+
+\textbf{A raw LLM is worse than no LLM.} Mean-pooled phi4-mini is the
+outlier. It is $0.104$ below SBERT ($p<10^{-60}$), below TF-IDF, and
+below PureSVD, which uses no text at all. Qwen3-Embedding-4B has
+nearly the same size and the same quantization, and it recovers fully.
+The deficit therefore comes from using an untrained chat model's hidden
+states as an embedding, not from LLM capacity. Concatenating TF-IDF to
+phi4-mini (Hybrid) recovers most of the loss but stays significantly
+below SBERT alone ($-0.010$, $p=0.037$).
+
+\textbf{Two scorers, one ordering.} The pointwise MLP reproduces this
+ordering: SBERT is above TF-IDF ($+0.026$, $p<10^{-4}$), mxbai and
+Qwen3 are not detectably different from SBERT, and phi4-mini ($-0.135$)
+and Hybrid ($-0.023$) are significantly worse. The scorers disagree
+about absolute levels, as expected for a listwise versus a pointwise
+objective, but not about which representations help.
+
+\subsection{Review text: Amazon and Yelp}
+\label{sec:amazon-results}
+\begin{table*}[t]
+\centering
+\caption{Amazon Reviews and Yelp NDCG@10 (LGBMRanker, mean $\pm$ 95\% CI
+over 5 seeds). ``Item only'' and ``+Aff.+Pop.'' use popularity-matched
+negatives, as in Table~\ref{tab:main-results}; ``Uniform'' uses uniform
+negatives.}
+\label{tab:amazon-results}
+\input{tables/main_reviews}
+\end{table*}
+
+Table~\ref{tab:amazon-results} reports the two review datasets. Amazon
+repeats the MovieLens pattern in direction but has little power. Every
+personalized content pipeline beats popularity ($p<10^{-4}$), but with
+249 evaluated users every LGBMRanker comparison between content
+pipelines is inconclusive. The MLP scorer resolves only the extremes:
+SBERT beats TF-IDF ($+0.043$) and phi4-mini is $0.101$ below SBERT.
+
+Yelp, with 10{,}537 users, has enough power to resolve differences well
+under 0.01. The first capacity step replicates: SBERT beats TF-IDF by
+$0.013$ under LGBMRanker and $0.015$ under the MLP (both $p<10^{-12}$).
+Unlike on the other datasets, capacity above SBERT also pays, but by
+less. Qwen3-Embedding-4B is $+0.006$ above SBERT under LGBMRanker
+($p=0.002$; 0.198 vs.\ 0.192, $+3\%$ relative) and $+0.016$ under the MLP
+($+9\%$). mxbai is TOST-equivalent to SBERT under LGBMRanker and
+$+0.010$ under the MLP. Raw phi4-mini is equivalent to SBERT under
+LGBMRanker but $0.037$ below it under the MLP; \S\ref{sec:failure-analysis}
+examines why. Across the three datasets, then, the TF-IDF-to-SBERT step
+is the most consistent gain (on Amazon it is significant only under the
+MLP). A trained LLM embedder adds a
+further gain, half the size of that step under LGBMRanker and the same
+size under the MLP, but only on long review text with a sample large
+enough to detect it.
+
+\subsection{Text redundancy, within one dataset}
+\label{sec:redundancy-analysis}
+\label{fig:redundancy-vs-gap}
+Corpus lexical redundancy (mean pairwise TF-IDF cosine between items)
+is a cheap candidate predictor of when dense encoders beat TF-IDF; in
+retrieval, dense models' advantage over BM25 shrinks on high-overlap
+corpora \cite{rare-redundancy}. Comparing datasets cannot isolate it,
+because datasets also differ in domain, size, and text type, so we test
+it within MovieLens. We
+hold users, items, labels, splits, and negatives fixed and vary only
+the item text:
+
+\begin{center}
+\small
+\begin{tabular}{lccc}
+\toprule
+Item text & Redundancy & SBERT $-$ TF-IDF & $p$ \\
+\midrule
+Title only & 0.009 & $+0.019\pm0.008$ & $2\times10^{-6}$ \\
+Title + genres & 0.030 & $+0.014\pm0.007$ & $5\times10^{-5}$ \\
+Genres only & 0.188 & $-0.008\pm0.004$ & $3\times10^{-4}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent The dense encoder's advantage shrinks as redundancy rises and
+reverses at the redundant extreme. All three differences survive a
+Bonferroni correction. The manipulation is not a pure redundancy
+intervention: genres-only text also removes the title, and with
+$\sim$20 genre tokens TF-IDF becomes an exact genre indicator. The
+result therefore shows that the lexical-versus-dense ordering
+\emph{follows} text redundancy within a dataset, which is the property
+a practitioner can measure before running anything. It does not show
+that redundancy alone causes the ordering. Nor does it transfer across
+datasets: Yelp's review text is the most redundant corpus we test
+(0.236; Amazon 0.193), yet SBERT beats TF-IDF there by 0.013. Redundancy
+is a guide for choosing which text to embed within one corpus, not a
+predictor that ranks corpora.
+
+\subsection{Robustness under temporal shift}
+\label{sec:robustness}
+\label{tab:robustness}
+\label{fig:robustness}
+Holding out each user's most recent positives lowers every pipeline
+(popularity-matched negatives, LGBMRanker, 5 seeds). On MovieLens, NDCG@10
+drops by 0.115--0.128, and the ordering established under the random
+split holds. TF-IDF degrades most (0.576 $\rightarrow$ 0.448, a drop of 0.128),
+while SBERT and mxbai degrade least (0.115 each; SBERT 0.589
+$\rightarrow$ 0.474), so the SBERT-over-TF-IDF gap roughly doubles, from $+0.014$ to $+0.027$ ($p<10^{-4}$). mxbai also separates
+from TF-IDF under shift ($+0.020$, $p=0.006$). No encoder above SBERT is
+detectably better than it (mxbai $-0.006$, Qwen3 $-0.010$, both
+$p>0.5$), and raw phi4-mini remains far behind ($-0.115$). The only
+reliable robustness gain therefore again comes from the first step
+off lexical features. On Amazon, every pipeline drops by a similar
+amount (0.055--0.069), every content pipeline still beats popularity
+($p<10^{-3}$), and no encoder is measurably more robust than another.
+On Yelp the shift costs content pipelines only 0.005--0.009 (popularity
+0.016). Both gains survive it: SBERT over TF-IDF ($+0.011$) and Qwen3
+over SBERT ($+0.010$, $p<10^{-4}$). Among content pipelines, Qwen3 loses the least (0.005).
+
+\subsection{Quality--cost}
+\label{sec:quality-cost}
+
+Table~\ref{tab:latency} reports per-item embedding latency from the
+like-for-like benchmark (\S\ref{sec:experimental-setup}).
+
+\begin{table}[t]
+\centering
+\caption{Median per-item embedding latency (ms) over three rounds, 256
+items, full-text coverage. Ratios are relative to SBERT at the same
+batch size. MovieLens text is a title and genres; Amazon text averages
+about 2{,}100 characters of review snippets.}
+\label{tab:latency}
+\footnotesize
+\setlength{\tabcolsep}{2pt}
+\begin{tabular}{lrrrr}
+\toprule
+ & \multicolumn{2}{c}{MovieLens} & \multicolumn{2}{c}{Amazon} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}
+Encoder & batch 1 & batch 32 & batch 1 & batch 32 \\
+\midrule
+SBERT (22M) & 12.3 & 5.8 & 60 & 42 \\
+mxbai (335M) & 42.5 (3.5$\times$) & 28.8 (5.0$\times$) & 257 (4.3$\times$) & 241 (5.7$\times$) \\
+phi4-mini (3.8B) & 222 (18$\times$) & 170 (29$\times$) & 2{,}691 (45$\times$) & 2{,}696 (64$\times$) \\
+Qwen3-Emb.\ (4B) & 231 (19$\times$) & 262 (45$\times$) & 2{,}974 (49$\times$) & 2{,}924 (70$\times$) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+With the same inputs, batching, and hardware for every encoder, the
+two 4B-class models cost 18--45$\times$ SBERT per item on short
+MovieLens text and 45--70$\times$ on long Amazon text, and mxbai costs
+3.5--5.7$\times$. The gap widens with text length because SBERT and
+mxbai process short chunks while the LLMs attend over the full text,
+and widens with batch size because SBERT gains more from batching
+than the LLM servers do. On Amazon, batching barely helps the LLMs:
+with four parallel server slots on one machine, long sequences
+saturate the accelerator even at batch size 1. Qwen3 at batch 32 on
+MovieLens is slower per item than at batch 1, which we attribute to
+contention among the server slots, a property of this deployment
+rather than of the model. A naive comparison of SBERT's batched corpus
+encoding against unbatched, sequential LLM calls inflates the ratio by
+more than an order of magnitude, so latency claims should state the
+batching regime.
+
+Set against quality, the extra cost buys nothing measurable. On
+MovieLens, Qwen3 costs 19--45$\times$ SBERT for an NDCG@10 difference of
+$-0.002$ (inconclusive), mxbai costs 3.5--5$\times$ for $-0.006$, and
+phi4-mini costs 18--29$\times$ for $-0.104$. On Amazon, Qwen3 has the
+highest point estimate ($+0.010$ over SBERT under LGBMRanker, $-0.002$
+under the MLP), but neither difference is detectable at 45--70$\times$
+the cost. Yelp is the one case where capacity above SBERT buys a
+detectable gain: $+0.006$ to $+0.016$ NDCG@10 for Qwen3. Yelp's item text
+is as long as Amazon's (mean 2{,}148 vs.\ 2{,}083 characters), so its
+per-item cost should be similar, about 45--70$\times$ SBERT. Because item embeddings are computed once per item and
+cached, these ratios bound refresh and cold-start cost rather than
+request latency (\S\ref{sec:practical-guidelines}).

@@ -1,0 +1,66 @@
+\section{Where Capacity Helps and Where It Fails}
+\label{sec:failure-analysis}
+
+\subsection{When raw LLM hidden states fail}
+Mean-pooled phi4-mini is the least predictable encoder: far below
+TF-IDF on MovieLens, but level with SBERT on Yelp under LGBMRanker
+(Table~\ref{tab:scorer-comparison}). For each embedding space we
+measured the effective dimensionality (participation ratio of the
+covariance spectrum) on up to 1{,}000 random items. We also measured
+how well profile similarity \emph{alone} ranks each user's test
+candidates: candidates are sorted by their mean cosine to the user's
+training positives, with no scorer (seed 1, popularity-matched
+negatives). The second measure depends only on the order of the
+similarities, not on their range.
+
+\begin{center}
+\small
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{lrrrcrrr}
+\toprule
+ & \multicolumn{3}{c}{Effective dim.} & & \multicolumn{3}{c}{Affinity-only NDCG@10} \\
+\cmidrule(lr){2-4}\cmidrule(lr){6-8}
+Space & ML & Amz & Yelp & & ML & Amz & Yelp \\
+\midrule
+TF-IDF & 198 & 125 & 207 & & 0.393 & 0.193 & 0.140 \\
+SBERT & 68 & 28 & 37 & & 0.410 & 0.183 & 0.152 \\
+mxbai & 57 & 40 & 42 & & 0.419 & 0.178 & 0.160 \\
+phi4-mini (raw) & \textbf{21} & \textbf{3.7} & \textbf{3.6} & & \textbf{0.198} & 0.168 & 0.157 \\
+Qwen3-Emb. & 92 & 51 & 95 & & 0.411 & 0.204 & 0.168 \\
+\midrule
+Popularity & & & & & 0.379 & 0.090 & 0.133 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent Raw phi4-mini vectors are nearly parallel on every dataset
+(mean pairwise cosine 0.95--0.96), which is the anisotropy that
+contrastive training removes \cite{sgpt, llm2vec}. Qwen3-Embedding has
+that training, and its spread is comparable to the dedicated encoders'.
+Geometry alone does not decide the outcome, however. On short MovieLens
+metadata, the \emph{order} of phi4-mini's similarities is close to
+uninformative: ranking by it scores 0.198, below popularity, while every
+other encoder scores 0.39--0.42. Mean-centering does not repair it
+(0.481 $\rightarrow$ 0.486 NDCG@10 in the full pipeline, against SBERT's
+0.574 on the same seed). On long Yelp reviews the order is as
+informative as mxbai's and better than SBERT's. LGBMRanker splits on
+feature order, so it inherits this pattern: phi4-mini fails on
+MovieLens and matches SBERT on Yelp. The MLP scorer fails with
+phi4-mini on all three datasets. One explanation consistent with this,
+which we did not test directly, is that the MLP standardizes every
+input dimension. That gives thousands of near-constant item-vector
+dimensions the same scale as the few informative ones, while a tree
+model can ignore them. In short, whether raw hidden states work depends
+on text length and on the scorer. An LLM of the same size trained for
+embedding has neither dependence.
+
+\subsection{User history does not moderate the gain}
+On MovieLens, an exploratory per-user regression suggested that the
+advantage of mxbai and Qwen3 over SBERT grows with the log of a user's
+number of positives (slope $+0.004$ to $+0.019$ per unit, $p<0.05$ in
+all twelve configuration--scorer--encoder combinations). The pattern
+did not replicate. On Amazon all slopes have $p>0.17$. On Yelp the
+LGBMRanker slopes are positive but not significant ($p\geq0.07$), and
+the MLP slopes \emph{reverse} sign ($p<0.01$ in five of six). We
+therefore do not treat history length as a moderator of encoder
+capacity.
